@@ -1,0 +1,92 @@
+#!/bin/sh
+# Install entry point invoked by /index.php/management/exec_upgrade_ecu_app
+# after it extracts the uploaded tarball into /home/update_from_app/.
+#
+# Layout it expects (sibling to itself):
+#   ../update/applications/ecu-sunspec   — the SunSpec adapter binary
+#   ../update/etc-init-d/S99-sunspec     — boot init script
+#   ../update/etc-yuneng/*.conf          — optional yuneng config overlays
+#   ../update/dropbear/                  — optional, included when packaged
+#       dropbear, dropbearkey, dropbearconvert, dbclient, scp
+#       authorized_keys                  — SSH public keys to install
+#
+# Logs go to /home/sunspec-install.log.
+
+set -e
+LOG=/home/sunspec-install.log
+exec >> "$LOG" 2>&1
+echo
+echo "=== $(date) installing apsystems-sunspec ==="
+
+# Resolve the package root regardless of where PHP extracted us.
+ASSIST_DIR="$(cd "$(dirname "$0")" && pwd)"
+PKG_ROOT="$(cd "$ASSIST_DIR/.." && pwd)"
+SRC="$PKG_ROOT/update"
+
+if [ ! -d "$SRC" ]; then
+    echo "FATAL: $SRC not found; aborting"
+    exit 1
+fi
+
+# 1. The SunSpec adapter binary itself.
+if [ -f "$SRC/applications/ecu-sunspec" ]; then
+    install -m 0755 "$SRC/applications/ecu-sunspec" /home/applications/ecu-sunspec
+    echo "+ /home/applications/ecu-sunspec"
+fi
+
+# 2. Boot init script (BusyBox /etc/init.d style).
+if [ -f "$SRC/etc-init-d/S99-sunspec" ]; then
+    install -m 0755 "$SRC/etc-init-d/S99-sunspec" /etc/init.d/S99-sunspec
+    echo "+ /etc/init.d/S99-sunspec"
+fi
+
+# 3. Optional yuneng config overlays.
+if [ -d "$SRC/etc-yuneng" ]; then
+    for f in "$SRC/etc-yuneng/"*; do
+        [ -f "$f" ] || continue
+        cp "$f" /etc/yuneng/
+        echo "+ /etc/yuneng/$(basename "$f")"
+    done
+fi
+
+# 4. Optional dropbear bundle. Only acts if the dropbear/ subdir exists.
+if [ -d "$SRC/dropbear" ]; then
+    install -m 0755 "$SRC/dropbear/dropbear" /usr/local/sbin/dropbear
+    [ -f "$SRC/dropbear/dropbearkey" ] && \
+        install -m 0755 "$SRC/dropbear/dropbearkey" /usr/local/sbin/dropbearkey
+    [ -f "$SRC/dropbear/dropbearconvert" ] && \
+        install -m 0755 "$SRC/dropbear/dropbearconvert" /usr/local/sbin/dropbearconvert
+    [ -f "$SRC/dropbear/dbclient" ] && \
+        install -m 0755 "$SRC/dropbear/dbclient" /usr/local/sbin/dbclient
+    echo "+ /usr/local/sbin/dropbear*"
+
+    mkdir -p /etc/dropbear
+    [ -f /etc/dropbear/dropbear_rsa_host_key ] || \
+        /usr/local/sbin/dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key 2>/dev/null
+
+    # Install authorized_keys for root if shipped.
+    if [ -f "$SRC/dropbear/authorized_keys" ]; then
+        mkdir -p /root/.ssh
+        chmod 700 /root/.ssh
+        # Append (don't overwrite) — keeps any keys already installed.
+        cat "$SRC/dropbear/authorized_keys" >> /root/.ssh/authorized_keys
+        chmod 600 /root/.ssh/authorized_keys
+        # De-duplicate.
+        awk '!seen[$0]++' /root/.ssh/authorized_keys > /tmp/.ak.tmp \
+            && mv /tmp/.ak.tmp /root/.ssh/authorized_keys
+        echo "+ /root/.ssh/authorized_keys"
+    fi
+
+    if [ -f "$SRC/etc-init-d/S98-dropbear" ]; then
+        install -m 0755 "$SRC/etc-init-d/S98-dropbear" /etc/init.d/S98-dropbear
+        echo "+ /etc/init.d/S98-dropbear"
+        /etc/init.d/S98-dropbear start || true
+    fi
+fi
+
+# 5. Restart the SunSpec adapter so the freshly installed binary takes effect.
+if [ -x /etc/init.d/S99-sunspec ]; then
+    /etc/init.d/S99-sunspec restart || true
+fi
+
+echo "=== $(date) done ==="

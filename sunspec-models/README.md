@@ -27,7 +27,7 @@ Same idea, or set `SUNSPEC_MODELS_PATH` to a directory containing the JSON:
 
 ```sh
 export SUNSPEC_MODELS_PATH=/path/to/this/directory
-python3 -m sunspec2.cli.suns -i 10.25.1.33 -P 1502
+python3 -m sunspec2.cli.suns -i <ECU-IP> -P 1502
 ```
 
 ### Other SunSpec libraries
