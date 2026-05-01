@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bolke/ecu-sunspec/internal/config"
 	"github.com/bolke/ecu-sunspec/internal/server"
 	"github.com/bolke/ecu-sunspec/internal/source"
 	"github.com/bolke/ecu-sunspec/internal/sunspec"
@@ -37,6 +38,8 @@ func main() {
 		logMaxSizeMB  = flag.Int("log-max-size", 5, "max log size MB before rotation")
 		logMaxBackups = flag.Int("log-max-backups", 3, "rotated log files retained")
 		logMaxAgeDays = flag.Int("log-max-age", 7, "rotated log retention days")
+
+		configPath = flag.String("config", config.DefaultPath, "path to JSON config file (writes.enabled / writes.allow_list); missing file = writes disabled")
 	)
 	flag.Parse()
 
@@ -52,11 +55,30 @@ func main() {
 	}
 	logger := log.New(logSink, "ecu-sunspec ", log.LstdFlags|log.Lmsgprefix)
 
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		logger.Fatalf("load config %s: %v", *configPath, err)
+	}
+	if cfg.Writes.Enabled {
+		logger.Printf("writes enabled; allow_list=%v", cfg.Writes.AllowList)
+	}
+
 	db, err := source.OpenSQLite(*dbDir)
 	if err != nil {
 		logger.Fatalf("open sqlite at %s: %v", *dbDir, err)
 	}
 	defer db.Close()
+
+	// Open the writer only if writes are enabled — keeps the ro/rw fault
+	// surface as small as possible for read-only deployments.
+	var writer *source.Writer
+	if cfg.Writes.Enabled {
+		writer, err = source.OpenWriter(*dbDir)
+		if err != nil {
+			logger.Fatalf("open writer on %s: %v", *dbDir, err)
+		}
+		defer writer.Close()
+	}
 
 	builder := source.NewBuilder(db, *paramsFile, *yunengDir)
 
@@ -75,6 +97,8 @@ func main() {
 			SerialFallback: *serialFallback,
 			Phase:          phaseMode,
 		},
+		Writes: cfg,
+		Writer: writer,
 		Logger: logger,
 	})
 

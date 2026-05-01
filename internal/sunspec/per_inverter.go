@@ -120,6 +120,10 @@ func EncodePerInverter(inv source.Inverter, ecuid string, unitID uint16, opt Opt
 	bank.putAcc32(uint64(inv.EventBits[2]))                         // EvtVnd3 — raw 64-95
 	bank.putAcc32(uint64(notImplU32))                               // EvtVnd4 — unused
 
+	// --- Model 123 — Inverter Controls (read/write) for THIS inverter ---
+	pct, ena, conn := PerInverterControlsState(inv)
+	emitControls(&bank, pct, ena, conn)
+
 	// --- Multi-MPPT (160) — only this inverter's panels ---
 	if !opt.DisableMPPT {
 		emitPerInverterMPPT(&bank, inv)

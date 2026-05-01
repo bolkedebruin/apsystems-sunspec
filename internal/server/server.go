@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/bolke/ecu-sunspec/internal/config"
 	"github.com/bolke/ecu-sunspec/internal/source"
 	"github.com/bolke/ecu-sunspec/internal/sunspec"
 	"github.com/simonvetter/modbus"
@@ -29,6 +30,15 @@ type Config struct {
 	MaxClients      uint
 	Encoder         sunspec.Options
 	Logger          *log.Logger
+
+	// Writes is the file-loaded config (writes.enabled + allow_list). When
+	// Writes.Enabled is false (the default), all FC06/FC10 are rejected with
+	// IllegalFunction.
+	Writes config.Config
+
+	// Writer is the SQLite write handle. Required when Writes.Enabled is true;
+	// optional otherwise. The server takes no ownership — caller must Close().
+	Writer *source.Writer
 }
 
 // Server owns the Modbus listener and the snapshot refresh goroutine.
@@ -44,6 +54,10 @@ type Server struct {
 	provider Provider
 
 	banks atomic.Pointer[map[uint8]*sunspec.Bank]
+
+	// snap holds the most-recently-built source.Snapshot so write handlers
+	// can map unit-ID + register-offset to the right inverter UID.
+	snap atomic.Pointer[source.Snapshot]
 
 	mu  sync.Mutex
 	srv *modbus.ModbusServer
@@ -121,6 +135,7 @@ func (s *Server) Stop() error {
 // snapshot without wiring a Provider.
 func (s *Server) SetSnapshot(snap source.Snapshot) {
 	s.banks.Store(buildBanks(snap, s.cfg.Encoder))
+	s.snap.Store(&snap)
 }
 
 func (s *Server) refresh(ctx context.Context) error {
@@ -132,6 +147,7 @@ func (s *Server) refresh(ctx context.Context) error {
 		return err
 	}
 	s.banks.Store(buildBanks(snap, s.cfg.Encoder))
+	s.snap.Store(&snap)
 	return nil
 }
 
@@ -185,9 +201,7 @@ type handler struct {
 
 func (h *handler) HandleHoldingRegisters(req *modbus.HoldingRegistersRequest) ([]uint16, error) {
 	if req.IsWrite {
-		h.owner.logger.Printf("FC06/10 write from %s uid=%d addr=%d (rejecting)",
-			req.ClientAddr, req.UnitId, req.Addr)
-		return nil, modbus.ErrIllegalFunction
+		return h.handleWrite(req)
 	}
 	bank := h.owner.bankFor(req.UnitId)
 	if bank == nil || !bank.Contains(req.Addr, req.Quantity) {
@@ -198,6 +212,91 @@ func (h *handler) HandleHoldingRegisters(req *modbus.HoldingRegistersRequest) ([
 	h.owner.logger.Printf("FC03 read from %s uid=%d addr=%d qty=%d",
 		req.ClientAddr, req.UnitId, req.Addr, req.Quantity)
 	return bank.Slice(req.Addr, req.Quantity), nil
+}
+
+// handleWrite gates writes via config (writes.enabled + allow_list), then
+// dispatches Model 123 writes through ControlsWriter. Anything outside
+// Model 123 returns IllegalDataAddress — we don't allow random writes
+// scribbling other parts of the bank.
+func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, error) {
+	o := h.owner
+
+	if !o.cfg.Writes.AllowsWrite(req.ClientAddr) {
+		reason := "writes disabled"
+		if o.cfg.Writes.Writes.Enabled {
+			reason = "client not in allow_list"
+		}
+		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d → rejected (%s)",
+			req.ClientAddr, req.UnitId, req.Addr, reason)
+		return nil, modbus.ErrIllegalFunction
+	}
+	if o.cfg.Writer == nil {
+		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d → no writer configured",
+			req.ClientAddr, req.UnitId, req.Addr)
+		return nil, modbus.ErrIllegalFunction
+	}
+
+	bank := o.bankFor(req.UnitId)
+	if bank == nil {
+		return nil, modbus.ErrIllegalDataAddress
+	}
+
+	// Locate Model 123 in this bank and verify the write falls inside it.
+	ctlBase, ok := findModelInBank(bank, sunspec.ControlsModelID)
+	if !ok {
+		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d → no Model 123 in bank",
+			req.ClientAddr, req.UnitId, req.Addr)
+		return nil, modbus.ErrIllegalDataAddress
+	}
+	bodyStart := ctlBase + 2
+	bodyEnd := bodyStart + sunspec.ControlsBodyLen
+	if req.Addr < bodyStart || req.Addr+req.Quantity > bodyEnd {
+		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d qty=%d → outside Model 123 [%d..%d)",
+			req.ClientAddr, req.UnitId, req.Addr, req.Quantity, bodyStart, bodyEnd)
+		return nil, modbus.ErrIllegalDataAddress
+	}
+
+	snapPtr := o.snap.Load()
+	if snapPtr == nil {
+		return nil, modbus.ErrServerDeviceFailure
+	}
+	cw := &ControlsWriter{
+		uid:    req.UnitId,
+		snap:   *snapPtr,
+		writer: o.cfg.Writer,
+	}
+	addrOffset := req.Addr - bodyStart
+	if err := cw.Apply(context.Background(), addrOffset, req.Args); err != nil {
+		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d apply: %v",
+			req.ClientAddr, req.UnitId, req.Addr, err)
+		return nil, modbus.ErrServerDeviceFailure
+	}
+	o.logger.Printf("FC06/16 write from %s uid=%d addr=%d qty=%d → applied",
+		req.ClientAddr, req.UnitId, req.Addr, req.Quantity)
+	return nil, nil
+}
+
+// findModelInBank walks the bank looking for the given model ID. Returns the
+// absolute address of the model's ID register (i.e., body starts at +2).
+func findModelInBank(bank *sunspec.Bank, id uint16) (uint16, bool) {
+	cur := bank.Base + 2 // skip "SunS"
+	end := bank.Base + uint16(len(bank.Regs))
+	for cur+1 < end {
+		modID := bank.At(cur)
+		if modID == sunspec.EndModelID {
+			return 0, false
+		}
+		if modID == id {
+			return cur, true
+		}
+		modL := bank.At(cur + 1)
+		next := cur + 2 + modL
+		if next <= cur || next > end {
+			return 0, false
+		}
+		cur = next
+	}
+	return 0, false
 }
 
 func (h *handler) HandleInputRegisters(req *modbus.InputRegistersRequest) ([]uint16, error) {

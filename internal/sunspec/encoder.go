@@ -271,6 +271,10 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	// --- Model 121 — Basic Settings (read-only here) ---
 	emitBasicSettings(&bank, s)
 
+	// --- Model 123 — Inverter Controls (read/write) ---
+	pct, ena, conn := AggregateControlsState(s)
+	emitControls(&bank, pct, ena, conn)
+
 	// --- Multi-MPPT Model 160 (one module per panel of every online inverter) ---
 	if !opt.DisableMPPT {
 		emitMultiMPPT(&bank, s)
