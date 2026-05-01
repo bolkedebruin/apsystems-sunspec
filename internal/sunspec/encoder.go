@@ -24,13 +24,17 @@ import (
 // callers index either way in practice.
 const BaseRegister = 40000
 
-// Manufacturer string used by default. Victron's Fronius driver matches on
-// the literal "Fronius" — anything else falls back to generic SunSpec.
-const DefaultManufacturer = "Fronius"
+// DefaultManufacturer is the SunSpec Common Model `Mn` value.
+//
+// Empirically Venus' Fronius/SunSpec driver accepts arbitrary manufacturer
+// strings (it doesn't gate on the literal "Fronius" the way some sources
+// claim), so we use the truthful vendor name.
+const DefaultManufacturer = "APsystems"
 
-// DefaultModelName is the friendly device name surfaced to clients in the
-// Common Model `Md` field. Victron's device list shows this string.
-const DefaultModelName = "APsystems ECU-R-Pro"
+// DefaultModelName is the SunSpec Common Model `Md` value. Venus combines
+// Mn + Md for display ("APsystems ECU-R-Pro"), so don't repeat the vendor
+// in this string.
+const DefaultModelName = "ECU-R-Pro"
 
 // PhaseMode controls which SunSpec inverter model the encoder emits.
 //
@@ -148,8 +152,11 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	if opt.Manufacturer == "" {
 		opt.Manufacturer = DefaultManufacturer
 	}
+	// Md priority: explicit --model-name flag → /etc/yuneng/model.conf →
+	// hard-coded fallback. The conf-file value is the truthful name (e.g.
+	// "ECU_R_PRO" or "ECU_C") so prefer it over the static default.
 	if opt.ModelName == "" {
-		opt.ModelName = DefaultModelName
+		opt.ModelName = strOr(s.Model, DefaultModelName)
 	}
 	if opt.Phase == PhaseAuto {
 		opt.Phase = detectPhase(s)

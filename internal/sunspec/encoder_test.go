@@ -135,14 +135,16 @@ func TestEncode_CommonModelStrings(t *testing.T) {
 
 	// Common model body starts at base+4. Mn occupies 16 registers.
 	mn := readString(bank, BaseRegister+4, 16)
-	if mn != "Fronius" {
-		t.Errorf("Mn=%q want %q", mn, "Fronius")
+	if mn != "APsystems" {
+		t.Errorf("Mn=%q want %q", mn, "APsystems")
 	}
 
-	// Md at base+4+16=20 (16 regs) — uses DefaultModelName when not overridden.
+	// Md at base+4+16=20 (16 regs). sampleSnapshot sets Model="ECU_R_PRO"
+	// (mirroring what /etc/yuneng/model.conf contains on a stock unit), so
+	// that's what should land in Md — not the DefaultModelName fallback.
 	md := readString(bank, BaseRegister+20, 16)
-	if md != DefaultModelName {
-		t.Errorf("Md=%q want %q", md, DefaultModelName)
+	if md != "ECU_R_PRO" {
+		t.Errorf("Md=%q want %q", md, "ECU_R_PRO")
 	}
 
 	// Vr at base+4+16+16+8=44 (8 regs).

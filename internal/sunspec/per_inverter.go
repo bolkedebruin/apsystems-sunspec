@@ -188,16 +188,34 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 	}
 }
 
-// inverterModelLabel returns a friendly Md value for the Common Model based
-// on the wire-protocol type code.
+// inverterModelLabel returns the Common Model `Md` for a per-inverter bank.
+//
+// The mapping comes from APsystems' wire-protocol type code (parameters_app.conf
+// column 2). The same code list is used by HA's homeassistant-apsystems_ecu_reader:
+//
+//	"01" — YC600 / DS3        (2-channel)
+//	"03" — QS1                (4-channel)
+//	"04" — DS3-H / DS3D-L     (2-channel)
+//	"05" — QT2                (4-channel three-phase)
+//	"02" — YC1000             (4-channel three-phase)
+//
+// The vendor name lives in `Mn`, so don't repeat it here — Venus and HA
+// combine Mn + Md when displaying.
 func inverterModelLabel(inv source.Inverter) string {
 	switch inv.TypeCode {
 	case "01":
-		return "APsystems DS3"
+		return "DS3"
+	case "02":
+		return "YC1000"
 	case "03":
-		return "APsystems DS3-L"
+		return "QS1"
 	case "04":
-		return "APsystems DS3-H"
+		return "DS3-H"
+	case "05":
+		return "QT2"
 	}
-	return "APsystems microinverter"
+	if inv.TypeCode != "" {
+		return "type-" + inv.TypeCode
+	}
+	return "microinverter"
 }

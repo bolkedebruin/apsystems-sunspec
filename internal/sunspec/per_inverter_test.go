@@ -52,12 +52,12 @@ func TestEncodePerInverter_CommonModelFields(t *testing.T) {
 	bank := EncodePerInverter(sampleInverter(), "999999999999", 5, Options{})
 
 	mn := readString(bank, BaseRegister+4, 16)
-	if mn != "Fronius" {
-		t.Errorf("Mn=%q want Fronius", mn)
+	if mn != "APsystems" {
+		t.Errorf("Mn=%q want APsystems", mn)
 	}
 	md := readString(bank, BaseRegister+20, 16)
-	if md != "APsystems DS3" {
-		t.Errorf("Md=%q want %q", md, "APsystems DS3")
+	if md != "DS3" {
+		t.Errorf("Md=%q want %q", md, "DS3")
 	}
 	vr := readString(bank, BaseRegister+44, 8)
 	if vr != "3067" {
@@ -76,10 +76,11 @@ func TestEncodePerInverter_CommonModelFields(t *testing.T) {
 
 func TestEncodePerInverter_TypeCodeMapsToModelLabel(t *testing.T) {
 	cases := map[string]string{
-		"01":      "APsystems DS3",
-		"03":      "APsystems DS3-L",
-		"04":      "APsystems DS3-H",
-		"unknown": "APsystems microinverter",
+		"01": "DS3",
+		"03": "QS1",
+		"04": "DS3-H",
+		"":   "microinverter",
+		"99": "type-99",
 	}
 	for ty, want := range cases {
 		t.Run(ty, func(t *testing.T) {
