@@ -59,10 +59,14 @@ func New(p Provider, cfg Config) *Server {
 		cfg.RefreshInterval = 5 * time.Second
 	}
 	if cfg.Timeout == 0 {
-		cfg.Timeout = 30 * time.Second
+		// 5 minutes — Home Assistant's SunSpec config-flow has UI-step gaps
+		// approaching a minute, and pysunspec2 doesn't auto-reconnect after
+		// a server-side close. 30 s (the previous default) was getting
+		// EPIPE during integration setup.
+		cfg.Timeout = 5 * time.Minute
 	}
 	if cfg.MaxClients == 0 {
-		cfg.MaxClients = 8
+		cfg.MaxClients = 32
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
