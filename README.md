@@ -231,6 +231,8 @@ To disable writes entirely (read-only deployment):
 | `Conn=0` | Turn inverter(s) off | `INSERT turn_on_off VALUES(uid, 0)` |
 | `Conn=1` | Turn inverter(s) on | `INSERT turn_on_off VALUES(uid, 1)` |
 
+The per-panel cap is clamped to the same `[20, 500]` W range the ECU's own PHP `set_maxpower` endpoint enforces. `WMaxLim_Pct` values above 100 are clamped to 100; values that would resolve to under 20 W (including `WMaxLim_Pct=0`) are raised to 20 W. **`WMaxLim_Pct=0` is not "off"** — it's "minimum cap." Use `Conn=0` to actually turn an inverter off.
+
 ### Latency
 
 Writes go to the ECU's SQLite tables. `main.exe` polls those tables once per ZigBee cycle (default 300 s, fast-poll mode 30 s) and dispatches the queued commands over the radio. **Expect 30–300 s** between a Modbus write and the actual inverter responding.
