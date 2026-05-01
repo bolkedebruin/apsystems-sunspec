@@ -73,12 +73,15 @@ package: ecu
 	@mkdir -p $(DIST)/pkgroot/update_localweb
 	@mkdir -p $(DIST)/pkgroot/update/applications
 	@mkdir -p $(DIST)/pkgroot/update/etc-init-d
+	@mkdir -p $(DIST)/pkgroot/update/etc-sunspec
 	@cp $(DIST)/$(BIN)-linux-armv7 $(DIST)/pkgroot/update/applications/ecu-sunspec
 	@chmod 0755 $(DIST)/pkgroot/update/applications/ecu-sunspec
 	@cp packaging/assist $(DIST)/pkgroot/update_localweb/assist
 	@chmod 0755 $(DIST)/pkgroot/update_localweb/assist
 	@cp packaging/S99-sunspec $(DIST)/pkgroot/update/etc-init-d/S99-sunspec
 	@chmod 0755 $(DIST)/pkgroot/update/etc-init-d/S99-sunspec
+	@cp packaging/sunspec.json $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
+	@chmod 0644 $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
 	@(cd $(DIST)/pkgroot && tar -cjf ../apsystems-sunspec-$(VERSION).tar.bz2 .)
 	@rm -rf $(DIST)/pkgroot
 	@ls -lh $(DIST)/apsystems-sunspec-$(VERSION).tar.bz2
@@ -103,6 +106,7 @@ package-with-dropbear: ecu
 	@mkdir -p $(DIST)/pkgroot/update_localweb
 	@mkdir -p $(DIST)/pkgroot/update/applications
 	@mkdir -p $(DIST)/pkgroot/update/etc-init-d
+	@mkdir -p $(DIST)/pkgroot/update/etc-sunspec
 	@mkdir -p $(DIST)/pkgroot/update/dropbear
 	@cp $(DIST)/$(BIN)-linux-armv7 $(DIST)/pkgroot/update/applications/ecu-sunspec
 	@chmod 0755 $(DIST)/pkgroot/update/applications/ecu-sunspec
@@ -111,6 +115,8 @@ package-with-dropbear: ecu
 	@cp packaging/S99-sunspec $(DIST)/pkgroot/update/etc-init-d/S99-sunspec
 	@cp packaging/S98-dropbear $(DIST)/pkgroot/update/etc-init-d/S98-dropbear
 	@chmod 0755 $(DIST)/pkgroot/update/etc-init-d/*
+	@cp packaging/sunspec.json $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
+	@chmod 0644 $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
 	@for f in dropbear dropbearkey dropbearconvert dbclient scp authorized_keys; do \
 		[ -f "$(DROPBEAR_DIR)/$$f" ] && cp "$(DROPBEAR_DIR)/$$f" $(DIST)/pkgroot/update/dropbear/ && echo "  +dropbear/$$f" || true; \
 	done

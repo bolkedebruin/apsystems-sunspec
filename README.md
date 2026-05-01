@@ -8,8 +8,8 @@ The adapter reads the ECU's own SQLite databases and `/tmp/parameters_app.conf`.
 
 | Modbus unit ID | Bank | Why |
 |---|---|---|
-| **1** | Aggregate: `Common + Inverter (101) + Nameplate (120) + Basic Settings (121) + Multi-MPPT (160 with every panel) + Vendor (64202) + End` | System-level totals; what Victron's GX polls |
-| **2..N+1** | Per-microinverter: `Common (SN = inverter UID) + Inverter (101) + Multi-MPPT (160 with that inverter's panels) + End` | Per-inverter dashboards in HA / Grafana |
+| **1** | Aggregate: `Common + Inverter (101) + Nameplate (120) + Basic Settings (121) + Controls (123) + Multi-MPPT (160 with every panel) + Vendor (64202) + End` | System-level totals; what Victron's GX polls |
+| **2..N+1** | Per-microinverter: `Common (SN = inverter UID) + Inverter (101) + Controls (123) + Multi-MPPT (160 with that inverter's panels) + End` | Per-inverter dashboards in HA / Grafana |
 
 Each microinverter shows up in HA's SunSpec integration as an independent device. Per-panel data lives in Multi-MPPT (Model 160) — module count derives from the type code in `parameters_app.conf` (DS3: 2, QS1: 4, DS3-H: 2, YC1000 / QT2: 4).
 
@@ -179,6 +179,91 @@ Settings → PV inverters → Find PV inverters
 Pick the entry that auto-discovers at `<ECU-IP>:1502` (the aggregate, slave ID 1). When prompted, choose **Position = AC out** (if your microinverters are downstream of the Multi for AC-coupled freq-shift control) and **Phase = L1** for single-phase setups.
 
 If Venus' driver gets stuck after a binary upgrade — the standard fix is to toggle the inverter's "Show in overview" off and on again from the GX UI, which forces a driver reconnect.
+
+## Modbus write controls (SunSpec Model 123)
+
+Out-of-the-box the package ships with **writes enabled for any host on the same LAN as the ECU**. That's the most common case (HA, Cerbo, your laptop all on `10.25.1.0/24`). To turn writes off or restrict them further, edit `/home/sunspec.json` on the ECU.
+
+### Default config (shipped at `/home/sunspec.json`)
+
+```json
+{
+    "writes": {
+        "enabled": true,
+        "allow_local_network": true,
+        "allow_list": []
+    }
+}
+```
+
+| Field | Default | Effect |
+|---|---|---|
+| `enabled` | `true` | Master switch. `false` = all writes rejected with `ErrIllegalFunction`. |
+| `allow_local_network` | `true` | Auto-allow any IP in the same subnet as one of the ECU's interfaces. |
+| `allow_list` | `[]` | Extra IPs or CIDRs allowed beyond loopback + local network. |
+
+To restrict to two specific hosts and disable the broad LAN allow:
+
+```json
+{
+    "writes": {
+        "enabled": true,
+        "allow_local_network": false,
+        "allow_list": ["10.25.1.29", "10.25.1.21"]
+    }
+}
+```
+
+To disable writes entirely (read-only deployment):
+
+```json
+{ "writes": { "enabled": false } }
+```
+
+`assist` only installs the default config when `/home/sunspec.json` doesn't already exist — re-installing the package preserves your custom settings.
+
+### What can be written
+
+| SunSpec field (Model 123) | Effect | Mapped to |
+|---|---|---|
+| `WMaxLim_Pct` (0..100) | Curtail to N% of nameplate. Per-inverter banks affect one inverter; aggregate bank affects all. | `UPDATE power SET limitedpower=…, flag=1` (per-panel watts) |
+| `WMaxLim_Ena=0` | Restore full output (clear curtailment) | `limitedpower = 500` |
+| `Conn=0` | Turn inverter(s) off | `INSERT turn_on_off VALUES(uid, 0)` |
+| `Conn=1` | Turn inverter(s) on | `INSERT turn_on_off VALUES(uid, 1)` |
+
+### Latency
+
+Writes go to the ECU's SQLite tables. `main.exe` polls those tables once per ZigBee cycle (default 300 s, fast-poll mode 30 s) and dispatches the queued commands over the radio. **Expect 30–300 s** between a Modbus write and the actual inverter responding.
+
+For real-time control (e.g. fast zero-feed-in), use AC-coupled frequency-shift on a Victron Multi instead — that's sub-second because each microinverter's local P-f curve responds without any radio round-trip.
+
+### Verify a write end-to-end
+
+```sh
+# Read the current cap.
+python3 -c "
+import sunspec2.modbus.client as c
+d = c.SunSpecModbusClientDeviceTCP(slave_id=2, ipaddr='<ECU-IP>', ipport=1502, timeout=3)
+d.scan()
+m = next(m for m in d.model_list if m.model_id == 123); m.read()
+print('current pct:', m.WMaxLimPct.value)
+"
+
+# Cap to 50%.
+python3 -c "
+import sunspec2.modbus.client as c
+d = c.SunSpecModbusClientDeviceTCP(slave_id=2, ipaddr='<ECU-IP>', ipport=1502, timeout=3)
+d.scan()
+m = next(m for m in d.model_list if m.model_id == 123); m.read()
+m.WMaxLimPct.value = 50
+m.write()
+"
+
+# Confirm the SQL row updated; flag=1 means main.exe will pick it up
+# on the next poll.
+ssh ecu sqlite3 /home/database.db \
+    "'SELECT id, limitedpower, flag FROM power'"
+```
 
 ## Architecture / details
 

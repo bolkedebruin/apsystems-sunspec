@@ -43,7 +43,18 @@ put_exec() {
 # 1. The SunSpec adapter binary itself.
 put_exec "$SRC/applications/ecu-sunspec" /home/applications/ecu-sunspec || true
 
-# 2. Boot init script (BusyBox /etc/init.d style).
+# 2. Default config file at /home/sunspec.json — only if not already present.
+#    Preserves any custom writes.allow_list / allow_local_network settings
+#    from a previous install.
+if [ -f "$SRC/etc-sunspec/sunspec.json" ] && [ ! -f /home/sunspec.json ]; then
+    cp -f "$SRC/etc-sunspec/sunspec.json" /home/sunspec.json
+    chmod 0644 /home/sunspec.json
+    echo "+ /home/sunspec.json (default — edit to customize writes)"
+elif [ -f /home/sunspec.json ]; then
+    echo "  /home/sunspec.json present — keeping existing config"
+fi
+
+# 3. Boot init script (BusyBox /etc/init.d style).
 put_exec "$SRC/etc-init-d/S99-sunspec" /etc/init.d/S99-sunspec || true
 
 # 3. Optional yuneng config overlays.
