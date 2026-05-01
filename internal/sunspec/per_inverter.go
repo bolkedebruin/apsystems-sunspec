@@ -16,6 +16,13 @@ import (
 // SunSpec scanner walking unit IDs 2..N+1 sees N microinverters as separate
 // devices.
 func EncodePerInverter(inv source.Inverter, ecuid string, unitID uint16, opt Options) Bank {
+	return EncodePerInverterWithProtection(inv, ecuid, unitID, opt, source.ProtectionParams{Has: map[string]bool{}})
+}
+
+// EncodePerInverterWithProtection is like EncodePerInverter but also surfaces
+// IEEE 1547-2018 DER trip + Enter Service models populated from the supplied
+// protection params for this inverter.
+func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID uint16, opt Options, prot source.ProtectionParams) Bank {
 	if opt.Manufacturer == "" {
 		opt.Manufacturer = DefaultManufacturer
 	}
@@ -123,6 +130,13 @@ func EncodePerInverter(inv source.Inverter, ecuid string, unitID uint16, opt Opt
 	// --- Model 123 — Inverter Controls (read/write) for THIS inverter ---
 	pct, ena, conn := PerInverterControlsState(inv)
 	emitControls(&bank, pct, ena, conn)
+
+	// --- Models 707/708/709/710 + 703 — DER trip + Enter Service ---
+	// Sourced from this inverter's active protection_parameters60code row.
+	// vNom: prefer this inverter's reported AC voltage, fall back to 230 V.
+	vNom := float64(inv.ACVoltageV)
+	emitDERTripModels(&bank, prot, vNom)
+	emitEnterService(&bank, prot, vNom)
 
 	// --- Multi-MPPT (160) — only this inverter's panels ---
 	if !opt.DisableMPPT {

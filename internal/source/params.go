@@ -72,12 +72,27 @@ func parseHeader(f []string) (ParamsHeader, error) {
 }
 
 func parseInverterLine(f []string) (Inverter, error) {
-	if len(f) < 5 {
-		return Inverter{}, fmt.Errorf("need >=5 fields, got %d", len(f))
+	if len(f) < 3 {
+		return Inverter{}, fmt.Errorf("need >=3 fields (uid,online,type), got %d", len(f))
 	}
 	online, err := strconv.Atoi(f[1])
 	if err != nil {
 		return Inverter{}, fmt.Errorf("online: %w", err)
+	}
+	// Offline inverters get a 3-field record (UID,0,type) — main.exe omits
+	// telemetry columns when there's no recent radio frame. Surface them as
+	// Inverter{Online:false} so the SunSpec bank still lists them. Online
+	// inverters are required to have the full 5+ field record; a short row
+	// with online=1 is a real malformation.
+	if len(f) < 5 {
+		if online != 0 {
+			return Inverter{}, fmt.Errorf("online inverter has only %d fields (need >=5)", len(f))
+		}
+		return Inverter{
+			UID:      f[0],
+			Online:   false,
+			TypeCode: f[2],
+		}, nil
 	}
 	freq, err := strconv.ParseFloat(f[3], 64)
 	if err != nil {

@@ -8,12 +8,22 @@ The adapter reads the ECU's own SQLite databases and `/tmp/parameters_app.conf`.
 
 | Modbus unit ID | Bank | Why |
 |---|---|---|
-| **1** | Aggregate: `Common + Inverter (101) + Nameplate (120) + Basic Settings (121) + Controls (123) + Multi-MPPT (160 with every panel) + Vendor (64202) + End` | System-level totals; what Victron's GX polls |
-| **2..N+1** | Per-microinverter: `Common (SN = inverter UID) + Inverter (101) + Controls (123) + Multi-MPPT (160 with that inverter's panels) + End` | Per-inverter dashboards in HA / Grafana |
+| **1** | Aggregate: `Common + Inverter (101) + Nameplate (120) + Basic Settings (121) + Controls (123) + DER Trip LV/HV/LF/HF (707/708/709/710) + Enter Service (703) + Multi-MPPT (160 with every panel) + Vendor (64202) + End` | System-level totals; what Victron's GX polls |
+| **2..N+1** | Per-microinverter: `Common (SN = inverter UID) + Inverter (101) + Controls (123) + DER Trip + Enter Service + Multi-MPPT (160 with that inverter's panels) + End` | Per-inverter dashboards in HA / Grafana |
 
 Each microinverter shows up in HA's SunSpec integration as an independent device. Per-panel data lives in Multi-MPPT (Model 160) — module count derives from the type code in `parameters_app.conf` (DS3: 2, QS1: 4, DS3-H: 2, YC1000 / QT2: 4).
 
 Standard SunSpec event flags are populated from the ECU's own alarm bitstring: ground fault, over-temperature, AC over/under voltage, over/under frequency, manual shutdown, AC disconnect, grid disconnect (anti-island trip), HW test failure. Raw APsystems bits remain in `EvtVnd1..3` for full fidelity. See [`docs/EVENTS.md`](docs/EVENTS.md) for the complete bit table.
+
+### IEEE 1547-2018 grid protection (read-only)
+
+Models **707/708/709/710** expose the active per-inverter trip thresholds — the LV/HV/LF/HF curves the firmware will actually disconnect on. **Model 703** (Enter Service) exposes the reconnect window: V/Hz band the grid must hold for `ESDlyTms` seconds before the inverter rejoins. Sourced from `protection_parameters60code` in `database.db`, refreshed each ZigBee cycle.
+
+This is the SunSpec model set adopted by SMA ennexOS, Fronius GEN24, Enphase, and the IEEE 1547-2018 conformance profile — current-generation DER tooling reads it natively. Older ride-through curve models (129/130/135/136) are not emitted.
+
+Useful for confirming whether your fleet supports Victron AC-coupled frequency-shift: read `Model 710 → Crv[0].MustTrip.Pt[1]` per inverter; the Hz threshold has to sit above the Multi's max FS frequency (typically 52 Hz) with at least 0.5 Hz margin, and the clearance time has to exceed the longest dwell at high frequency. On a mixed fleet the inverter with the lowest OF threshold gates the whole system.
+
+Currently read-only. The active settings can already be changed via the existing PHP `management/set_protection60_parameters` endpoint or via a future Modbus write path gated by `writes.allow_grid_protection` (not implemented).
 
 ## Verify it's working
 
@@ -29,7 +39,7 @@ for m in d.model_list: print(m.model_id, m.model_len)
 "
 ```
 
-Expected: `1, 101, 120, 121, 160, 64202` for unit 1.
+Expected: `1, 101, 120, 121, 123, 707, 708, 709, 710, 703, 160, 64202` for unit 1.
 
 ## Building
 

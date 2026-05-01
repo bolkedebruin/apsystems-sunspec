@@ -159,7 +159,11 @@ func buildBanks(snap source.Snapshot, opt sunspec.Options) *map[uint8]*sunspec.B
 	banks[1] = &agg
 	for i, inv := range snap.Inverters {
 		uid := uint8(2 + i)
-		b := sunspec.EncodePerInverter(inv, snap.ECUID, uint16(uid), opt)
+		prot := snap.Protection[inv.UID]
+		if prot.Has == nil {
+			prot.Has = map[string]bool{}
+		}
+		b := sunspec.EncodePerInverterWithProtection(inv, snap.ECUID, uint16(uid), opt, prot)
 		banks[uid] = &b
 	}
 	return &banks

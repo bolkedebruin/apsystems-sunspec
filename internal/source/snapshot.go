@@ -36,6 +36,12 @@ type Snapshot struct {
 	InverterCount       int
 	InverterOnlineCount int
 	Inverters           []Inverter
+
+	// Protection holds per-inverter active grid-protection thresholds keyed
+	// by inverter UID. Empty when the firmware doesn't populate
+	// protection_parameters60code (older revisions). Used by SunSpec models
+	// 707/708/709/710 (DER trip) and 703 (Enter Service).
+	Protection map[string]ProtectionParams
 }
 
 // TotalNameplateW returns the sum of per-inverter rated AC output, regardless

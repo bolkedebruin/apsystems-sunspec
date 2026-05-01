@@ -107,6 +107,9 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 				metaByUID[m.UID] = m
 			}
 		}
+		if m, err := b.DB.PerInverterProtection(ctx); err == nil {
+			s.Protection = m
+		}
 	}
 
 	var (
