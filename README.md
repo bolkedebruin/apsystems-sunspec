@@ -1,17 +1,17 @@
 # apsystems-sunspec
 
-A SunSpec / Modbus TCP adapter that turns an APsystems ECU (ECU-R, ECU-R-Pro, ECU-C, etc.) into a Fronius-compatible PV inverter for Victron GX, Home Assistant, Grafana, and any other SunSpec consumer.
+A SunSpec / Modbus TCP adapter for APsystems ECU gateways (ECU-R, ECU-R-Pro, ECU-C, etc.). Exposes the data the ECU already collects from your microinverters as a standards-compliant SunSpec register bank, so Victron GX, Home Assistant, Grafana, Node-RED, and any other SunSpec consumer can read it natively.
 
-The adapter reads from the ECU's existing SQLite databases and `/tmp/parameters_app.conf`, then publishes a standards-compliant SunSpec register bank on a configurable Modbus TCP port. It runs on the ECU itself or as a sidecar.
+The adapter reads the ECU's own SQLite databases and `/tmp/parameters_app.conf`. No effect on `main.exe`'s radio cycle and no cloud round-trip. Runs on the ECU itself or as a sidecar.
 
 ## What it exposes
 
 | Modbus unit ID | Bank | Why |
 |---|---|---|
-| **1** | Aggregate: `Common + Inverter (101) + Nameplate (120) + Basic Settings (121) + Multi-MPPT (160 with all panels) + Vendor (64202) + End` | System-level totals; what Victron's Fronius driver reads |
+| **1** | Aggregate: `Common + Inverter (101) + Nameplate (120) + Basic Settings (121) + Multi-MPPT (160 with every panel) + Vendor (64202) + End` | System-level totals; what Victron's GX polls |
 | **2..N+1** | Per-microinverter: `Common (SN = inverter UID) + Inverter (101) + Multi-MPPT (160 with that inverter's panels) + End` | Per-inverter dashboards in HA / Grafana |
 
-Each microinverter shows up in HA's SunSpec integration as an independent device. Per-panel data lives in Multi-MPPT (Model 160) — 2 modules per DS3, 4 per DS3-L.
+Each microinverter shows up in HA's SunSpec integration as an independent device. Per-panel data lives in Multi-MPPT (Model 160) — module count derives from the type code in `parameters_app.conf` (DS3: 2, QS1: 4, DS3-H: 2, YC1000 / QT2: 4).
 
 Standard SunSpec event flags are populated from the ECU's own alarm bitstring: ground fault, over-temperature, AC over/under voltage, over/under frequency, manual shutdown, AC disconnect, grid disconnect (anti-island trip), HW test failure. Raw APsystems bits remain in `EvtVnd1..3` for full fidelity. See [`docs/EVENTS.md`](docs/EVENTS.md) for the complete bit table.
 
@@ -101,6 +101,48 @@ If you'd rather use your own pre-built dropbear, skip step 1 and pass `DROPBEAR_
 
 The resulting `apsystems-sunspec-<version>-dropbear.tar.bz2` adds an `S98-dropbear` init script so the SSH daemon comes up automatically on each boot.
 
+#### Connecting to the bundled dropbear
+
+dropbear 2012.55 is a vintage build. Modern OpenSSH clients refuse the algorithms it speaks by default — you have to opt in. Three things to know:
+
+1. **Host key algorithm**: dropbear 2012.55 only offers `ssh-rsa`. OpenSSH 8.5+ deprecated it. Re-enable with `HostKeyAlgorithms +ssh-rsa`.
+2. **User key algorithm**: same story — `PubkeyAcceptedAlgorithms +ssh-rsa`. ed25519 keys won't work; use an RSA key.
+3. **No `sftp` / `scp` subsystem**: dropbear 2012.55's distribution doesn't include the SFTP server. Use `ssh ecu cat /file > local` or the bundled `dbclient` instead of `scp`.
+
+A workable `~/.ssh/config` entry:
+
+```
+Host ecu
+    HostName <ECU-IP>
+    User root
+    IdentityFile ~/.ssh/id_rsa
+    HostKeyAlgorithms +ssh-rsa
+    PubkeyAcceptedAlgorithms +ssh-rsa
+    # Some networks need this to avoid the "no matching key exchange method" error:
+    KexAlgorithms +diffie-hellman-group14-sha1,diffie-hellman-group1-sha1
+```
+
+First-time connection accepts the host key, then `ssh ecu` works. To copy a file *to* the ECU when scp isn't available:
+
+```sh
+cat local-file | ssh ecu "cat > /target/path && chmod +x /target/path"
+```
+
+To copy *from* the ECU:
+
+```sh
+ssh ecu "cat /home/sunspec-install.log" > install.log
+```
+
+If your `id_rsa` is passphrase-encrypted and you want to use a dedicated unencrypted key just for the ECU (recommended — limit scope), generate a throwaway RSA key:
+
+```sh
+ssh-keygen -t rsa -b 4096 -N "" -f ~/.ssh/ecu_id_rsa
+# then in your ~/.ssh/config:
+#   IdentityFile ~/.ssh/ecu_id_rsa
+# and ship ecu_id_rsa.pub as authorized_keys in the dropbear bundle.
+```
+
 ## Running as a sidecar
 
 If you don't want to deploy on the ECU, run the binary anywhere with read access to the ECU's `/home` (NFS, rsync mirror, SSHFS) and `/tmp/parameters_app.conf`:
@@ -136,7 +178,7 @@ Settings → PV inverters → Find PV inverters
 
 Pick the entry that auto-discovers at `<ECU-IP>:1502` (the aggregate, slave ID 1). When prompted, choose **Position = AC out** (if your microinverters are downstream of the Multi for AC-coupled freq-shift control) and **Phase = L1** for single-phase setups.
 
-If Venus' Fronius driver detection misbehaves after a binary upgrade — the standard fix is to toggle the inverter's Show-in-overview off and on again from the GX UI, which forces a driver reconnect.
+If Venus' driver gets stuck after a binary upgrade — the standard fix is to toggle the inverter's "Show in overview" off and on again from the GX UI, which forces a driver reconnect.
 
 ## Architecture / details
 
