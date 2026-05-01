@@ -226,12 +226,14 @@ To disable writes entirely (read-only deployment):
 
 | SunSpec field (Model 123) | Effect | Mapped to |
 |---|---|---|
-| `WMaxLim_Pct` (0..100) | Curtail to N% of nameplate. Per-inverter banks affect one inverter; aggregate bank affects all. | `UPDATE power SET limitedpower=…, flag=1` (per-panel watts) |
-| `WMaxLim_Ena=0` | Restore full output (clear curtailment) | `limitedpower = 500` |
+| `WMaxLim_Pct` (0..100) | Per-panel cap = `500 W × pct/100` (clamped to `[20, 500]`). Per-inverter banks affect one inverter; aggregate bank affects all. | `UPDATE power SET limitedpower=…, flag=1` (per-panel watts) |
+| `WMaxLim_Ena=0` | Restore full output (`limitedpower = 500`, the ECU's uncapped sentinel) | same table, `limitedpower = 500` |
 | `Conn=0` | Turn inverter(s) off | `INSERT turn_on_off VALUES(uid, 0)` |
 | `Conn=1` | Turn inverter(s) on | `INSERT turn_on_off VALUES(uid, 1)` |
 
 The per-panel cap is clamped to the same `[20, 500]` W range the ECU's own PHP `set_maxpower` endpoint enforces. `WMaxLim_Pct` values above 100 are clamped to 100; values that would resolve to under 20 W (including `WMaxLim_Pct=0`) are raised to 20 W. **`WMaxLim_Pct=0` is not "off"** — it's "minimum cap." Use `Conn=0` to actually turn an inverter off.
+
+> "% of nameplate" is the SunSpec semantic, but on this hardware the underlying knob is the per-panel watt cap, not AC nameplate. `WMaxLim_Pct=100` resolves to 500 W/panel — the ECU firmware's hard ceiling, also the value the upstream `homeassistant-apsystems_ecu_reader` integration uses as "uncapped." On a DS3 (2 panels) that's 1000 W of headroom, which is well above any practical panel and effectively means "no curtailment." On a DS3-L (4 panels, higher-output panels), the 500 W/panel boundary may actually bind.
 
 ### Latency
 
