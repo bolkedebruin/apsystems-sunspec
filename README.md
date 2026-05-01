@@ -56,8 +56,10 @@ make package
 ### 2. POST it to the ECU
 
 ```sh
-curl -X POST -F file=@dist/apsystems-sunspec-<version>.tar.bz2 \
+curl -X POST -H "Expect:" -F file=@dist/apsystems-sunspec-<version>.tar.bz2 \
      http://<ECU-IP>/index.php/management/exec_upgrade_ecu_app
+# `-H "Expect:"` disables curl's automatic 100-continue header, which the
+# ECU's lighttpd rejects with 417.
 ```
 
 The PHP handler extracts the tarball into `/home/update_from_app/` and runs `update_localweb/assist`. The script:
