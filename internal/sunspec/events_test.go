@@ -16,8 +16,8 @@ func makeBits(positions ...int) [4]uint32 {
 func TestMapAPsystemsToSunSpecEvt1(t *testing.T) {
 	cases := []struct {
 		name string
-		set  []int   // APsystems bit positions
-		want uint32  // expected SunSpec Evt1
+		set  []int  // APsystems bit positions
+		want uint32 // expected SunSpec Evt1
 	}{
 		{"all clear", nil, 0},
 

@@ -14,25 +14,26 @@ const VendorModelID = 64202
 // that don't fit into standard SunSpec fields.
 //
 // Layout:
-//   Fixed block (system-wide, 16 regs):
-//     PollingS (uint16)         - /etc/yuneng/polling_interval.conf       (1)
-//     EcuFwVer (8 regs string)  - /etc/yuneng/version.conf                (8)
-//     TodayWh  (acc32)          - daily_energy   × 1000                   (2)
-//     MonthWh  (acc32)          - monthly_energy × 1000                   (2)
-//     YearWh   (acc32)          - yearly_energy  × 1000                   (2)
-//     N        (uint16)         - number of per-inverter rows             (1)
 //
-//   Per-inverter block (10 regs each):
-//     Idx          (uint16)         - 1-based row index
-//     RSSI         (uint16)         - 0..255, raw signal_strength.signal_strength
-//     LimitedW     (uint16)         - power.limitedpower (per-panel cap, W)
-//     Phase        (uint16)         - id.phase (0..3)
-//     Model        (uint16)         - id.model
-//     SoftwareVer  (uint16)         - id.software_version
-//     PanelCnt     (uint16)         - per-type panel count
-//     NameplateW   (uint16)         - per-type nameplate watts
-//     Online       (uint16)         - 1=online, 0=offline
-//     Pad          (uint16)
+//	Fixed block (system-wide, 16 regs):
+//	  PollingS (uint16)         - /etc/yuneng/polling_interval.conf       (1)
+//	  EcuFwVer (8 regs string)  - /etc/yuneng/version.conf                (8)
+//	  TodayWh  (acc32)          - daily_energy   × 1000                   (2)
+//	  MonthWh  (acc32)          - monthly_energy × 1000                   (2)
+//	  YearWh   (acc32)          - yearly_energy  × 1000                   (2)
+//	  N        (uint16)         - number of per-inverter rows             (1)
+//
+//	Per-inverter block (10 regs each):
+//	  Idx          (uint16)         - 1-based row index
+//	  RSSI         (uint16)         - 0..255, raw signal_strength.signal_strength
+//	  LimitedW     (uint16)         - power.limitedpower (per-panel cap, W)
+//	  Phase        (uint16)         - id.phase (0..3)
+//	  Model        (uint16)         - id.model
+//	  SoftwareVer  (uint16)         - id.software_version
+//	  PanelCnt     (uint16)         - per-type panel count
+//	  NameplateW   (uint16)         - per-type nameplate watts
+//	  Online       (uint16)         - 1=online, 0=offline
+//	  Pad          (uint16)
 //
 // Total body length = 16 + 10·N. Skipped entirely if no inverters are present.
 func emitVendor(bank *Bank, s source.Snapshot) {

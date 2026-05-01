@@ -20,9 +20,9 @@ func (s Snapshot) AggregateEventBits() [4]uint32 {
 type Snapshot struct {
 	Captured time.Time
 
-	ECUID         string
-	Firmware      string
-	Model         string
+	ECUID           string
+	Firmware        string
+	Model           string
 	PollingInterval int // seconds; 0 = unknown / default
 
 	SystemPowerW        int32   // each_system_power latest sample
@@ -115,8 +115,9 @@ func (inv Inverter) PanelCount() int {
 // Returns nil when offline or RawTail is too short.
 //
 // Layouts (RawTail starts at temp_raw):
-//   type 01/04: [tmp, P0, V_ac, P1, V_ac]
-//   type 03   : [tmp, P0, V_ac, P1, P2, P3]
+//
+//	type 01/04: [tmp, P0, V_ac, P1, V_ac]
+//	type 03   : [tmp, P0, V_ac, P1, P2, P3]
 func (inv Inverter) PanelPowers() []int {
 	if !inv.Online {
 		return nil

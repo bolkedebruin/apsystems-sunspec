@@ -22,16 +22,16 @@ import (
 
 func main() {
 	var (
-		bind         = flag.String("bind", "tcp://0.0.0.0:1502", "modbus TCP listen URL")
-		dbDir        = flag.String("db-dir", "/home", "directory containing database.db and historical.db")
-		paramsFile   = flag.String("params-file", "/tmp/parameters_app.conf", "path to parameters_app.conf")
-		yunengDir    = flag.String("yuneng-dir", "/etc/yuneng", "directory containing ecuid.conf, version.conf, model.conf (\"\" to skip)")
-		manufacturer = flag.String("manufacturer", sunspec.DefaultManufacturer, "SunSpec Mn field; \"Fronius\" enables Victron auto-detection")
-		modelName    = flag.String("model-name", sunspec.DefaultModelName, "SunSpec Md field; appears as the device name in Victron's UI")
-		phase        = flag.String("phase-mode", "auto", "SunSpec inverter model: auto|single|split|three (101|102|103)")
+		bind           = flag.String("bind", "tcp://0.0.0.0:1502", "modbus TCP listen URL")
+		dbDir          = flag.String("db-dir", "/home", "directory containing database.db and historical.db")
+		paramsFile     = flag.String("params-file", "/tmp/parameters_app.conf", "path to parameters_app.conf")
+		yunengDir      = flag.String("yuneng-dir", "/etc/yuneng", "directory containing ecuid.conf, version.conf, model.conf (\"\" to skip)")
+		manufacturer   = flag.String("manufacturer", sunspec.DefaultManufacturer, "SunSpec Mn field; \"Fronius\" enables Victron auto-detection")
+		modelName      = flag.String("model-name", sunspec.DefaultModelName, "SunSpec Md field; appears as the device name in Victron's UI")
+		phase          = flag.String("phase-mode", "auto", "SunSpec inverter model: auto|single|split|three (101|102|103)")
 		serialOverride = flag.String("serial-override", "", "force this SN regardless of ecuid.conf (use to re-spawn under a new device id)")
 		serialFallback = flag.String("serial-fallback", "", "SN to use when ecuid.conf is unavailable")
-		refresh      = flag.Duration("refresh-interval", 5*time.Second, "snapshot refresh cadence")
+		refresh        = flag.Duration("refresh-interval", 5*time.Second, "snapshot refresh cadence")
 
 		logFile       = flag.String("log-file", "", "rotated log file path; empty means stderr")
 		logMaxSizeMB  = flag.Int("log-max-size", 5, "max log size MB before rotation")

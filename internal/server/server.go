@@ -34,8 +34,9 @@ type Config struct {
 // Server owns the Modbus listener and the snapshot refresh goroutine.
 //
 // One bank per Modbus unit ID is held in `banks`:
-//   uid 1 → aggregate (system-wide bank with Multi-MPPT spanning all panels)
-//   uid 2..N+1 → one per microinverter, in declaration order
+//
+//	uid 1 → aggregate (system-wide bank with Multi-MPPT spanning all panels)
+//	uid 2..N+1 → one per microinverter, in declaration order
 //
 // Other unit IDs fall back to the aggregate so casual scanners don't break.
 type Server struct {

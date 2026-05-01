@@ -87,18 +87,18 @@ const (
 
 // Standard SunSpec body lengths (registers, excluding ID + L).
 const (
-	CommonModelBodyLen        uint16 = 66
-	InverterModelBodyLen      uint16 = 50
-	NameplateBodyLen          uint16 = 26
-	BasicSettingsBodyLen      uint16 = 30
-	MultiMPPTFixedBlockLen    uint16 = 8  // body length contribution of the Multi-MPPT header
-	MultiMPPTPerModuleLen     uint16 = 20 // 1 module
+	CommonModelBodyLen     uint16 = 66
+	InverterModelBodyLen   uint16 = 50
+	NameplateBodyLen       uint16 = 26
+	BasicSettingsBodyLen   uint16 = 30
+	MultiMPPTFixedBlockLen uint16 = 8  // body length contribution of the Multi-MPPT header
+	MultiMPPTPerModuleLen  uint16 = 20 // 1 module
 )
 
 // Vendor model layout (64202).
 const (
-	VendorFixedBlockLen   uint16 = 16
-	VendorPerInverterLen  uint16 = 10
+	VendorFixedBlockLen  uint16 = 16
+	VendorPerInverterLen uint16 = 10
 )
 
 // SunSpec "not implemented" sentinels.
@@ -170,8 +170,8 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	bank.putString("", 8) // Options
 	bank.putString(strOr(s.Firmware, "0"), 8)
 	bank.putString(serialFor(s, opt), 16)
-	bank.put16(1)        // DA  (device address)
-	bank.put16(0)        // Pad
+	bank.put16(1) // DA  (device address)
+	bank.put16(0) // Pad
 
 	// --- Inverter Model 101/102/103 (int+SF, identical 50-register layout) ---
 	bank.put16(opt.Phase.modelID(), InverterModelBodyLen)
@@ -252,11 +252,11 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	// power users who want the unmapped per-channel/per-stage flags.
 	bits := s.AggregateEventBits()
 	bank.putAcc32(uint64(MapAPsystemsToSunSpecEvt1(bits))) // Evt1 — standard
-	bank.putAcc32(uint64(notImplU32))                       // Evt2 — reserved
-	bank.putAcc32(uint64(bits[0]))                          // EvtVnd1 — raw 0-31
-	bank.putAcc32(uint64(bits[1]))                          // EvtVnd2 — raw 32-63
-	bank.putAcc32(uint64(bits[2]))                          // EvtVnd3 — raw 64-95
-	bank.putAcc32(uint64(notImplU32))                       // EvtVnd4 — unused
+	bank.putAcc32(uint64(notImplU32))                      // Evt2 — reserved
+	bank.putAcc32(uint64(bits[0]))                         // EvtVnd1 — raw 0-31
+	bank.putAcc32(uint64(bits[1]))                         // EvtVnd2 — raw 32-63
+	bank.putAcc32(uint64(bits[2]))                         // EvtVnd3 — raw 64-95
+	bank.putAcc32(uint64(notImplU32))                      // EvtVnd4 — unused
 
 	// --- Model 120 — Nameplate Ratings ---
 	emitNameplate(&bank, s)
@@ -433,12 +433,13 @@ func detectPhase(s source.Snapshot) PhaseMode {
 //
 // APsystems doesn't expose per-panel DC voltage/current — only per-panel
 // power. We map:
-//   DCW   ← per-panel power (W)
-//   DCV   ← per-inverter AC voltage stand-in, shared across the inverter's panels
-//   DCA   ← derived = panel_W / inverter_Vac, scale -1 (0.1 A)
-//   Tmp   ← per-inverter cabinet temperature, shared
-//   DCSt  ← MPPT(4) when panel power > 0, Off(1) otherwise
-//   IDStr ← "<last8(UID)>/<A|B|C|D>"
+//
+//	DCW   ← per-panel power (W)
+//	DCV   ← per-inverter AC voltage stand-in, shared across the inverter's panels
+//	DCA   ← derived = panel_W / inverter_Vac, scale -1 (0.1 A)
+//	Tmp   ← per-inverter cabinet temperature, shared
+//	DCSt  ← MPPT(4) when panel power > 0, Off(1) otherwise
+//	IDStr ← "<last8(UID)>/<A|B|C|D>"
 func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 	type panelEntry struct {
 		inv     source.Inverter
@@ -510,7 +511,7 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 		}
 		bank.put16(dcw)
 
-		bank.putAcc32(0)         // DCWH — per-panel lifetime not tracked
+		bank.putAcc32(0)          // DCWH — per-panel lifetime not tracked
 		bank.putAcc32(tmsNotImpl) // Tms — same for all panels; expose as not-implemented
 
 		// Tmp — share inverter cabinet temperature

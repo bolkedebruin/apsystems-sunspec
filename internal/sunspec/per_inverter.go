@@ -28,11 +28,11 @@ func EncodePerInverter(inv source.Inverter, ecuid string, unitID uint16, opt Opt
 	bank.put16(CommonModelID, CommonModelBodyLen)
 	bank.putString(opt.Manufacturer, 16)
 	bank.putString(inverterModelLabel(inv), 16)
-	bank.putString("", 8)                              // Opt
-	bank.putString(strconv.Itoa(inv.SoftwareVer), 8)   // Vr
-	bank.putString(inv.UID, 16)                        // SN = inverter UID
-	bank.put16(unitID)                                 // DA — Modbus unit address
-	bank.put16(0)                                      // pad
+	bank.putString("", 8)                            // Opt
+	bank.putString(strconv.Itoa(inv.SoftwareVer), 8) // Vr
+	bank.putString(inv.UID, 16)                      // SN = inverter UID
+	bank.put16(unitID)                               // DA — Modbus unit address
+	bank.put16(0)                                    // pad
 
 	// --- Inverter Model 101 (single-phase) ---
 	bank.put16(InverterModelSinglePhase, InverterModelBodyLen)
@@ -114,11 +114,11 @@ func EncodePerInverter(inv source.Inverter, ecuid string, unitID uint16, opt Opt
 	// 86-bit APsystems bitstring. EvtVnd1..3 carry the raw bits for
 	// consumers that want the unmapped per-channel/per-stage detail.
 	bank.putAcc32(uint64(MapAPsystemsToSunSpecEvt1(inv.EventBits))) // Evt1
-	bank.putAcc32(uint64(notImplU32))                                // Evt2
-	bank.putAcc32(uint64(inv.EventBits[0]))                          // EvtVnd1 — raw 0-31
-	bank.putAcc32(uint64(inv.EventBits[1]))                          // EvtVnd2 — raw 32-63
-	bank.putAcc32(uint64(inv.EventBits[2]))                          // EvtVnd3 — raw 64-95
-	bank.putAcc32(uint64(notImplU32))                                // EvtVnd4 — unused
+	bank.putAcc32(uint64(notImplU32))                               // Evt2
+	bank.putAcc32(uint64(inv.EventBits[0]))                         // EvtVnd1 — raw 0-31
+	bank.putAcc32(uint64(inv.EventBits[1]))                         // EvtVnd2 — raw 32-63
+	bank.putAcc32(uint64(inv.EventBits[2]))                         // EvtVnd3 — raw 64-95
+	bank.putAcc32(uint64(notImplU32))                               // EvtVnd4 — unused
 
 	// --- Multi-MPPT (160) — only this inverter's panels ---
 	if !opt.DisableMPPT {
@@ -174,8 +174,8 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 		}
 		bank.put16(dcw)
 
-		bank.putAcc32(0)                     // DCWH — per-panel lifetime not tracked
-		bank.putAcc32(uint64(notImplU32))    // Tms — emit "not implemented" sentinel
+		bank.putAcc32(0)                  // DCWH — per-panel lifetime not tracked
+		bank.putAcc32(uint64(notImplU32)) // Tms — emit "not implemented" sentinel
 
 		bank.put16(uint16(int16(clampInt32(int32(inv.TemperatureC), -100, 200))))
 

@@ -110,13 +110,13 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 	}
 
 	var (
-		freqSum  float64
-		freqN    int
-		vSum     int
-		vN       int
-		tempMax  int
-		hasTemp  bool
-		online   int
+		freqSum float64
+		freqN   int
+		vSum    int
+		vN      int
+		tempMax int
+		hasTemp bool
+		online  int
 	)
 	for i := range invs {
 		inv := &invs[i]
