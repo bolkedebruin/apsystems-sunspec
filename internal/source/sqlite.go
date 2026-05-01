@@ -197,6 +197,52 @@ func (s *SQLiteReader) InverterList(ctx context.Context) ([]InverterMeta, error)
 	return out, rows.Err()
 }
 
+// LatestEventBits returns the most recent Event-table row's `eve` bitstring
+// for each inverter, parsed into the SunSpec bitfield slots:
+//
+//	[0] = Evt1   (bits 0..31  of the 86-char string)
+//	[1] = Evt2   (bits 32..63)
+//	[2] = EvtVnd1 (bits 64..85)
+//	[3] = always 0 (no source bits to fill it)
+//
+// Bit 0 of slot N corresponds to character index N*32 of the bitstring; '1'
+// in the string sets the bit, '0' clears it.
+func (s *SQLiteReader) LatestEventBits(ctx context.Context) (map[string][4]uint32, error) {
+	rows, err := s.live.QueryContext(ctx,
+		"SELECT device, eve FROM Event "+
+			"GROUP BY device HAVING rowid = MAX(rowid)")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][4]uint32)
+	for rows.Next() {
+		var uid, eve string
+		if err := rows.Scan(&uid, &eve); err != nil {
+			return nil, err
+		}
+		out[uid] = parseEventBits(eve)
+	}
+	return out, rows.Err()
+}
+
+// parseEventBits packs an APsystems Event bitstring into 4×uint32 slots.
+// LSB-first within each slot — character index 0 → bit 0 of slot 0.
+func parseEventBits(eve string) [4]uint32 {
+	var out [4]uint32
+	for i, c := range eve {
+		if i >= 128 {
+			break
+		}
+		if c == '1' {
+			slot := i / 32
+			bit := i % 32
+			out[slot] |= 1 << bit
+		}
+	}
+	return out
+}
+
 // SignalStrengths returns the latest RSSI (0..255) keyed by inverter UID.
 func (s *SQLiteReader) SignalStrengths(ctx context.Context) (map[string]int, error) {
 	rows, err := s.live.QueryContext(ctx,

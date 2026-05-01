@@ -89,6 +89,7 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 	// Join SQLite metadata onto inverters when available.
 	var sigByUID map[string]int
 	var limByUID map[string]int
+	var evByUID map[string][4]uint32
 	var metaByUID map[string]InverterMeta
 	if b.DB != nil {
 		if m, err := b.DB.SignalStrengths(ctx); err == nil {
@@ -96,6 +97,9 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 		}
 		if m, err := b.DB.PerInverterLimits(ctx); err == nil {
 			limByUID = m
+		}
+		if m, err := b.DB.LatestEventBits(ctx); err == nil {
+			evByUID = m
 		}
 		if list, err := b.DB.InverterList(ctx); err == nil {
 			metaByUID = make(map[string]InverterMeta, len(list))
@@ -126,6 +130,9 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 		}
 		if w, ok := limByUID[inv.UID]; ok {
 			inv.LimitedPowerW = w
+		}
+		if bits, ok := evByUID[inv.UID]; ok {
+			inv.EventBits = bits
 		}
 		if inv.Online {
 			online++

@@ -245,13 +245,18 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	bank.put16(st)
 	bank.put16(0) // StVnd (vendor state)
 
-	// Evt1/Evt2 + Vendor events — none.
-	bank.putAcc32(0)
-	bank.putAcc32(0)
-	bank.putAcc32(0)
-	bank.putAcc32(0)
-	bank.putAcc32(0)
-	bank.putAcc32(0)
+	// Evt1/Evt2/EvtVnd1..4 — bitfield32 each. We surface the OR-aggregate of
+	// every inverter's Event-table bitstring so an alarm on any one
+	// microinverter shows up at the system level. Slot 3 (EvtVnd2) gets the
+	// uint32 not-implemented sentinel since the source bitstring runs out at
+	// bit 86 (i.e., partway into EvtVnd1); EvtVnd3/4 likewise.
+	bits := s.AggregateEventBits()
+	bank.putAcc32(uint64(bits[0]))      // Evt1
+	bank.putAcc32(uint64(bits[1]))      // Evt2
+	bank.putAcc32(uint64(bits[2]))      // EvtVnd1
+	bank.putAcc32(uint64(bits[3]))      // EvtVnd2 (always 0 — no source bits)
+	bank.putAcc32(uint64(notImplU32))   // EvtVnd3
+	bank.putAcc32(uint64(notImplU32))   // EvtVnd4
 
 	// --- Model 120 — Nameplate Ratings ---
 	emitNameplate(&bank, s)
@@ -462,13 +467,13 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 	bank.put16(MultiMPPTModelID, bodyLen)
 
 	// Fixed block (8 regs body)
-	bank.put16(scaleFactor(-1)) // DCA_SF
-	bank.put16(scaleFactor(0))  // DCV_SF
-	bank.put16(scaleFactor(0))  // DCW_SF
-	bank.put16(scaleFactor(0))  // DCWH_SF
-	bank.putAcc32(0)            // Evt
-	bank.put16(n)               // N
-	bank.put16(notImplU16)      // TmsPer
+	bank.put16(scaleFactor(-1))       // DCA_SF
+	bank.put16(scaleFactor(0))        // DCV_SF
+	bank.put16(scaleFactor(0))        // DCW_SF
+	bank.put16(scaleFactor(0))        // DCWH_SF
+	bank.putAcc32(uint64(notImplU32)) // Evt — global module events bitfield32, not-impl
+	bank.put16(n)                     // N
+	bank.put16(notImplU16)            // TmsPer
 
 	// Tms is per-module timestamp. APsystems polls every inverter in a single
 	// cycle, so every panel would carry the same value here — 10 identical
@@ -517,7 +522,7 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 			st = StMPPT
 		}
 		bank.put16(st)
-		bank.putAcc32(0) // DCEvt
+		bank.putAcc32(uint64(notImplU32)) // DCEvt — bitfield32 not-impl
 	}
 }
 

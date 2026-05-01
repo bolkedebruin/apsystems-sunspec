@@ -2,6 +2,19 @@ package source
 
 import "time"
 
+// AggregateEventBits returns the bitwise-OR of every inverter's EventBits.
+// Used by the aggregate SunSpec bank's Inverter Model so an alarm on any one
+// microinverter shows up at the system level.
+func (s Snapshot) AggregateEventBits() [4]uint32 {
+	var out [4]uint32
+	for _, inv := range s.Inverters {
+		for i := range out {
+			out[i] |= inv.EventBits[i]
+		}
+	}
+	return out
+}
+
 // Snapshot is the unified view of ECU state used by the SunSpec encoder.
 // All values are best-effort: missing fields are zero, freshness varies per source.
 type Snapshot struct {
@@ -77,6 +90,12 @@ type Inverter struct {
 	SoftwareVer    int     // from id.software_version
 	LimitedPowerW  int     // per-panel curtailment cap from power.limitedpower (W)
 	RawTail        []int   // params columns 4..N as integers
+
+	// EventBits holds the 86-bit event bitstring from database.db.Event,
+	// packed LSB-first into uint32 slots: [Evt1, Evt2, EvtVnd1, EvtVnd2].
+	// The semantics of each bit are not publicly documented by APsystems —
+	// we surface the raw bits and let downstream consumers decode them.
+	EventBits [4]uint32
 }
 
 // PanelCount is the number of PV input channels per the inverter type. We

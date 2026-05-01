@@ -110,10 +110,15 @@ func EncodePerInverter(inv source.Inverter, ecuid string, unitID uint16, opt Opt
 	bank.put16(st)
 	bank.put16(0) // StVnd
 
-	// Evt1/Evt2 + 4× Vendor events (acc32 each)
-	for i := 0; i < 6; i++ {
-		bank.putAcc32(0)
-	}
+	// Evt1/Evt2/EvtVnd1..4 — surface this inverter's own event bits. Bits
+	// 0..31 → Evt1, 32..63 → Evt2, 64..85 → EvtVnd1; remaining slots are
+	// not-implemented because the source bitstring is 86 bits wide.
+	bank.putAcc32(uint64(inv.EventBits[0])) // Evt1
+	bank.putAcc32(uint64(inv.EventBits[1])) // Evt2
+	bank.putAcc32(uint64(inv.EventBits[2])) // EvtVnd1
+	bank.putAcc32(uint64(inv.EventBits[3])) // EvtVnd2 (always 0)
+	bank.putAcc32(uint64(notImplU32))       // EvtVnd3
+	bank.putAcc32(uint64(notImplU32))       // EvtVnd4
 
 	// --- Multi-MPPT (160) — only this inverter's panels ---
 	if !opt.DisableMPPT {
@@ -139,7 +144,7 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 	bank.put16(scaleFactor(0))
 	bank.put16(scaleFactor(0))
 	bank.put16(scaleFactor(0))
-	bank.putAcc32(0)
+	bank.putAcc32(uint64(notImplU32)) // Evt — global module events
 	bank.put16(n)
 	bank.put16(notImplU16)
 
@@ -179,7 +184,7 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 			st = StMPPT
 		}
 		bank.put16(st)
-		bank.putAcc32(0) // DCEvt
+		bank.putAcc32(uint64(notImplU32)) // DCEvt — bitfield32 not-impl
 	}
 }
 
