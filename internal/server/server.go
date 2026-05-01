@@ -32,11 +32,17 @@ type Config struct {
 }
 
 // Server owns the Modbus listener and the snapshot refresh goroutine.
+//
+// One bank per Modbus unit ID is held in `banks`:
+//   uid 1 → aggregate (system-wide bank with Multi-MPPT spanning all panels)
+//   uid 2..N+1 → one per microinverter, in declaration order
+//
+// Other unit IDs fall back to the aggregate so casual scanners don't break.
 type Server struct {
 	cfg      Config
 	provider Provider
 
-	bank atomic.Pointer[sunspec.Bank]
+	banks atomic.Pointer[map[uint8]*sunspec.Bank]
 
 	mu  sync.Mutex
 	srv *modbus.ModbusServer
@@ -109,8 +115,7 @@ func (s *Server) Stop() error {
 // SetSnapshot is exposed for tests so they can drive the server with a fixed
 // snapshot without wiring a Provider.
 func (s *Server) SetSnapshot(snap source.Snapshot) {
-	bank := sunspec.Encode(snap, s.cfg.Encoder)
-	s.bank.Store(&bank)
+	s.banks.Store(buildBanks(snap, s.cfg.Encoder))
 }
 
 func (s *Server) refresh(ctx context.Context) error {
@@ -121,9 +126,35 @@ func (s *Server) refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	bank := sunspec.Encode(snap, s.cfg.Encoder)
-	s.bank.Store(&bank)
+	s.banks.Store(buildBanks(snap, s.cfg.Encoder))
 	return nil
+}
+
+// buildBanks encodes the aggregate bank at uid 1 and a per-microinverter bank
+// at uid 2..N+1.
+func buildBanks(snap source.Snapshot, opt sunspec.Options) *map[uint8]*sunspec.Bank {
+	banks := make(map[uint8]*sunspec.Bank, 1+len(snap.Inverters))
+	agg := sunspec.Encode(snap, opt)
+	banks[1] = &agg
+	for i, inv := range snap.Inverters {
+		uid := uint8(2 + i)
+		b := sunspec.EncodePerInverter(inv, snap.ECUID, uint16(uid), opt)
+		banks[uid] = &b
+	}
+	return &banks
+}
+
+// bankFor picks the right bank for a unit ID. Unknown unit IDs fall back to
+// the aggregate so a casual scanner doesn't see Modbus exception 0x0B.
+func (s *Server) bankFor(uid uint8) *sunspec.Bank {
+	m := s.banks.Load()
+	if m == nil {
+		return nil
+	}
+	if b, ok := (*m)[uid]; ok {
+		return b
+	}
+	return (*m)[1] // aggregate fallback
 }
 
 func (s *Server) refreshLoop(ctx context.Context) {
@@ -153,7 +184,7 @@ func (h *handler) HandleHoldingRegisters(req *modbus.HoldingRegistersRequest) ([
 			req.ClientAddr, req.UnitId, req.Addr)
 		return nil, modbus.ErrIllegalFunction
 	}
-	bank := h.owner.bank.Load()
+	bank := h.owner.bankFor(req.UnitId)
 	if bank == nil || !bank.Contains(req.Addr, req.Quantity) {
 		h.owner.logger.Printf("FC03 read from %s uid=%d addr=%d qty=%d → IllegalDataAddress",
 			req.ClientAddr, req.UnitId, req.Addr, req.Quantity)
@@ -165,7 +196,7 @@ func (h *handler) HandleHoldingRegisters(req *modbus.HoldingRegistersRequest) ([
 }
 
 func (h *handler) HandleInputRegisters(req *modbus.InputRegistersRequest) ([]uint16, error) {
-	bank := h.owner.bank.Load()
+	bank := h.owner.bankFor(req.UnitId)
 	if bank == nil || !bank.Contains(req.Addr, req.Quantity) {
 		h.owner.logger.Printf("FC04 read from %s uid=%d addr=%d qty=%d → IllegalDataAddress",
 			req.ClientAddr, req.UnitId, req.Addr, req.Quantity)
