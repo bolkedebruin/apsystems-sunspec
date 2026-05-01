@@ -245,18 +245,18 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	bank.put16(st)
 	bank.put16(0) // StVnd (vendor state)
 
-	// Evt1/Evt2/EvtVnd1..4 — bitfield32 each. We surface the OR-aggregate of
-	// every inverter's Event-table bitstring so an alarm on any one
-	// microinverter shows up at the system level. Slot 3 (EvtVnd2) gets the
-	// uint32 not-implemented sentinel since the source bitstring runs out at
-	// bit 86 (i.e., partway into EvtVnd1); EvtVnd3/4 likewise.
+	// Evt1: SunSpec-standard event flags translated from the APsystems
+	// bitstring (Ground Fault, AC/DC Over Volt, Over Temp, Over/Under
+	// Frequency, etc.). Aggregate = OR across all inverters.
+	// EvtVnd1..3: raw APsystems bits 0-31, 32-63, 64-95 — full fidelity for
+	// power users who want the unmapped per-channel/per-stage flags.
 	bits := s.AggregateEventBits()
-	bank.putAcc32(uint64(bits[0]))      // Evt1
-	bank.putAcc32(uint64(bits[1]))      // Evt2
-	bank.putAcc32(uint64(bits[2]))      // EvtVnd1
-	bank.putAcc32(uint64(bits[3]))      // EvtVnd2 (always 0 — no source bits)
-	bank.putAcc32(uint64(notImplU32))   // EvtVnd3
-	bank.putAcc32(uint64(notImplU32))   // EvtVnd4
+	bank.putAcc32(uint64(MapAPsystemsToSunSpecEvt1(bits))) // Evt1 — standard
+	bank.putAcc32(uint64(notImplU32))                       // Evt2 — reserved
+	bank.putAcc32(uint64(bits[0]))                          // EvtVnd1 — raw 0-31
+	bank.putAcc32(uint64(bits[1]))                          // EvtVnd2 — raw 32-63
+	bank.putAcc32(uint64(bits[2]))                          // EvtVnd3 — raw 64-95
+	bank.putAcc32(uint64(notImplU32))                       // EvtVnd4 — unused
 
 	// --- Model 120 — Nameplate Ratings ---
 	emitNameplate(&bank, s)

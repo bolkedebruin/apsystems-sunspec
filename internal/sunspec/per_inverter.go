@@ -110,15 +110,15 @@ func EncodePerInverter(inv source.Inverter, ecuid string, unitID uint16, opt Opt
 	bank.put16(st)
 	bank.put16(0) // StVnd
 
-	// Evt1/Evt2/EvtVnd1..4 — surface this inverter's own event bits. Bits
-	// 0..31 → Evt1, 32..63 → Evt2, 64..85 → EvtVnd1; remaining slots are
-	// not-implemented because the source bitstring is 86 bits wide.
-	bank.putAcc32(uint64(inv.EventBits[0])) // Evt1
-	bank.putAcc32(uint64(inv.EventBits[1])) // Evt2
-	bank.putAcc32(uint64(inv.EventBits[2])) // EvtVnd1
-	bank.putAcc32(uint64(inv.EventBits[3])) // EvtVnd2 (always 0)
-	bank.putAcc32(uint64(notImplU32))       // EvtVnd3
-	bank.putAcc32(uint64(notImplU32))       // EvtVnd4
+	// Evt1 = SunSpec-standard event flags translated from this inverter's
+	// 86-bit APsystems bitstring. EvtVnd1..3 carry the raw bits for
+	// consumers that want the unmapped per-channel/per-stage detail.
+	bank.putAcc32(uint64(MapAPsystemsToSunSpecEvt1(inv.EventBits))) // Evt1
+	bank.putAcc32(uint64(notImplU32))                                // Evt2
+	bank.putAcc32(uint64(inv.EventBits[0]))                          // EvtVnd1 — raw 0-31
+	bank.putAcc32(uint64(inv.EventBits[1]))                          // EvtVnd2 — raw 32-63
+	bank.putAcc32(uint64(inv.EventBits[2]))                          // EvtVnd3 — raw 64-95
+	bank.putAcc32(uint64(notImplU32))                                // EvtVnd4 — unused
 
 	// --- Multi-MPPT (160) — only this inverter's panels ---
 	if !opt.DisableMPPT {
