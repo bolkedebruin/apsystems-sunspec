@@ -4,7 +4,7 @@
 
 ## Where to install
 
-### Home Assistant (cgarwood/homeassistant-sunspec)
+### Home Assistant (CJNE/ha-sunspec)
 
 Locate pysunspec2's model directory. Inside HA's container:
 

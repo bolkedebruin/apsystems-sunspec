@@ -159,7 +159,7 @@ All configuration is via flags — see `--help`.
 
 ## Adding to Home Assistant
 
-Use the [cgarwood/homeassistant-sunspec](https://github.com/cgarwood/homeassistant-sunspec) custom component. Add the integration up to four times:
+Use the [CJNE/ha-sunspec](https://github.com/CJNE/ha-sunspec) custom component (HACS-installable). Add the integration up to four times:
 
 ```
 Host: <ECU-IP>   Port: 1502   Slave ID: 1   →  System aggregate
