@@ -243,7 +243,7 @@ To disable writes entirely (read-only deployment):
 
 The per-panel cap is clamped to the same `[20, 500]` W range the ECU's own PHP `set_maxpower` endpoint enforces. `WMaxLim_Pct` values above 100 are clamped to 100; values that would resolve to under 20 W (including `WMaxLim_Pct=0`) are raised to 20 W. **`WMaxLim_Pct=0` is not "off"** — it's "minimum cap." Use `Conn=0` to actually turn an inverter off.
 
-> "% of nameplate" is the SunSpec semantic, but on this hardware the underlying knob is the per-panel watt cap, not AC nameplate. `WMaxLim_Pct=100` resolves to 500 W/panel — the ECU firmware's hard ceiling, also the value the upstream `homeassistant-apsystems_ecu_reader` integration uses as "uncapped." On a DS3 (2 panels) that's 1000 W of headroom, which is well above any practical panel and effectively means "no curtailment." On a DS3-L (4 panels, higher-output panels), the 500 W/panel boundary may actually bind.
+> "% of nameplate" is the SunSpec semantic, but on this hardware the underlying knob is the per-panel watt cap, not AC nameplate. `WMaxLim_Pct=100` resolves to 500 W/panel — the ECU firmware's hard ceiling, also the value the upstream `homeassistant-apsystems_ecu_reader` integration uses as "uncapped." On a DS3 (2 panels) that's 1000 W of headroom, which is well above any practical panel and effectively means "no curtailment." On a QS1 (4 panels, lower per-panel rating) the 500 W/panel boundary won't bind in practice either.
 
 ### Latency
 

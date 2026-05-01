@@ -85,10 +85,10 @@ func (s Snapshot) TotalLimitedW() int {
 type Inverter struct {
 	UID            string
 	Online         bool
-	TypeCode       string  // "01"=DS3 (2-channel), "03"=DS3-L variant on this firmware, "04"=DS3-H...
+	TypeCode       string  // wire-protocol type code; see per_inverter.go inverterModelLabel
 	FrequencyHz    float64 // params col 3
 	TemperatureC   int     // params col 4 - 100
-	ACVoltageV     int     // best-guess phase voltage (params col 6 for type 01, col 6 for type 03)
+	ACVoltageV     int     // best-guess phase voltage (params col 6 for type 01 or 03)
 	ACPowerW       int     // best-guess phase power (sum of channel powers when knowable)
 	SignalStrength int     // 0..255 from signal_strength table
 	Phase          int     // from id.phase (1/2/3 or 0)
@@ -107,12 +107,21 @@ type Inverter struct {
 // PanelCount is the number of PV input channels per the inverter type. We
 // avoid hardcoding the fleet shape — every count derives from this single
 // switch keyed on the wire-protocol type code.
+//
+// Type codes follow the upstream HA homeassistant-apsystems_ecu_reader
+// integration:
+//
+//	"01" — YC600 / DS3       (2-channel single-phase)
+//	"02" — YC1000            (4-channel three-phase)
+//	"03" — QS1               (4-channel single-phase)
+//	"04" — DS3-H / DS3D-L    (2-channel single-phase)
+//	"05" — QT2               (4-channel three-phase)
 func (inv Inverter) PanelCount() int {
 	switch inv.TypeCode {
 	case "01", "04":
-		return 2 // DS3, DS3-H/DS3D-L
+		return 2
 	case "03":
-		return 4 // DS3-L variant on this firmware (4 PV inputs)
+		return 4
 	}
 	return 0
 }
@@ -143,9 +152,10 @@ func (inv Inverter) PanelPowers() []int {
 
 // NameplateW is the rated AC output watts for this inverter type.
 //
-// Reference: APsystems datasheets — DS3 730W, DS3-L 1460W (2x730W),
-// DS3-H/DS3D-L 880W. Values are conservative typicals; vendor model 64xxx
-// can override per-region (NA/EU/SAA) if needed.
+// Reference: APsystems datasheets — DS3 730W (DS3-S variant) up to ~880W
+// standard, QS1 1200-1500W (4-channel single-phase), DS3-H / DS3D-L 880W.
+// Values here are conservative typicals; vendor model 64202 carries the
+// exact per-inverter nameplate when needed for billing accuracy.
 func (inv Inverter) NameplateW() int {
 	switch inv.TypeCode {
 	case "01":

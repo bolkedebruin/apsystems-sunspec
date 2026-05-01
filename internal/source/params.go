@@ -130,9 +130,9 @@ func parseInverterLine(f []string) (Inverter, error) {
 // Layouts (verified against historical_data.db.each_system_power at the same
 // timestamp; tail starts at temp_raw):
 //
-//	type 01 (DS3 2-channel):  [tmp, P0, V_ac, P1, V_ac]                   5 cols
-//	type 03 (DS3-L variant):  [tmp, P0, V_ac, P1, P2, P3]                 6 cols
-//	type 04 (DS3-H/DS3D-L):   not yet sampled — falls through to type-01 layout
+//	type 01 (YC600 / DS3, 2-channel):  [tmp, P0, V_ac, P1, V_ac]          5 cols
+//	type 03 (QS1, 4-channel):          [tmp, P0, V_ac, P1, P2, P3]        6 cols
+//	type 04 (DS3-H / DS3D-L):          not yet sampled — falls through to type-01 layout
 func guessACFromTail(typeCode string, tail []int) (vAC int, wAC int) {
 	switch typeCode {
 	case "01", "04":

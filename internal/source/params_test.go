@@ -41,7 +41,7 @@ func TestParseParamsApp_TypeOneAndThree(t *testing.T) {
 		t.Errorf("inv[0] tail len=%d want %d", got, want)
 	}
 
-	// Type 03 (DS3-L): tail = [temp_raw, P0, V_ac, P1, P2, P3].
+	// Type 03 (QS1, 4-channel): tail = [temp_raw, P0, V_ac, P1, P2, P3].
 	// Sample: 999900000002,1,03,50.1,126,238,232,235,156,218
 	//   tail = [126, 238, 232, 235, 156, 218]
 	//   total W = 238 + 235 + 156 + 218 = 847

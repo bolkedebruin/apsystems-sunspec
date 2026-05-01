@@ -29,7 +29,7 @@ func sampleSnapshot() source.Snapshot {
 				SignalStrength: 200, LimitedPowerW: 258, Model: 32, SoftwareVer: 3067,
 				RawTail: []int{131, 247, 247, 221, 247},
 			},
-			// type 03 (DS3-L, 4 panels): tail = [tmp, P0, V_ac, P1, P2, P3]
+			// type 03 (QS1, 4 panels): tail = [tmp, P0, V_ac, P1, P2, P3]
 			{UID: "999900000002", Online: true, TypeCode: "03", Phase: 1,
 				ACPowerW: 691, ACVoltageV: 232, TemperatureC: 38,
 				SignalStrength: 195, LimitedPowerW: 258, Model: 24, SoftwareVer: 5203,

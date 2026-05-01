@@ -446,7 +446,7 @@ func detectPhase(s source.Snapshot) PhaseMode {
 // emitMultiMPPT appends a SunSpec Model 160 (Multi-MPPT) section to the bank.
 //
 // One module per **panel** (PV input channel) on every online microinverter.
-// A DS3 contributes 2 modules, a DS3-L contributes 4 — the count derives from
+// A DS3 contributes 2 modules, a QS1 contributes 4 — the count derives from
 // the inverter type, never hardcoded.
 //
 // APsystems doesn't expose per-panel DC voltage/current — only per-panel

@@ -55,7 +55,7 @@ Repeating block (N times, 10 regs each):
   Phase             uint16             id.phase (0..3)
   Model             uint16             id.model
   SoftwareVer       uint16             id.software_version
-  PanelCnt          uint16             2 for DS3, 4 for DS3-L
+  PanelCnt          uint16             2 for DS3, 4 for QS1
   NameplateW        uint16   W         rated AC output
   Online            uint16   bool      1 = online
   Pad               uint16

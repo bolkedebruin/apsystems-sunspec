@@ -20,44 +20,46 @@ func TestPerInverterProtection_Fixture(t *testing.T) {
 		t.Fatalf("expected 3 inverters in protection_parameters60code, got %d", len(got))
 	}
 
-	// Inverter 999900000001 mirrors the live DS3-L: AC=195, AQ=183, AY=259,
-	// AD=263, AE=47.5, AF=52.0, AJ=47.0, AK=52.0, AG=60.
-	ds3l, ok := got["999900000001"]
+	// Inverter 999900000001 mirrors the live DS3 (UID 704...): AC=195, AQ=183,
+	// AY=259, AD=263, AE=47.5, AF=52.0, AJ=47.0, AK=52.0, AG=60. This DS3 has
+	// looser OF protection (52.0 Hz) than the type-03 inverters in the fleet.
+	ds3, ok := got["999900000001"]
 	if !ok {
 		t.Fatal("missing 999900000001")
 	}
-	if ds3l.UVStg2 != 195 || !ds3l.Has["AC"] {
-		t.Errorf("DS3-L UVStg2 (AC) = %v has=%v want 195/true", ds3l.UVStg2, ds3l.Has["AC"])
+	if ds3.UVStg2 != 195 || !ds3.Has["AC"] {
+		t.Errorf("DS3 UVStg2 (AC) = %v has=%v want 195/true", ds3.UVStg2, ds3.Has["AC"])
 	}
-	if ds3l.UVFast != 183 {
-		t.Errorf("DS3-L UVFast (AQ) = %v want 183", ds3l.UVFast)
+	if ds3.UVFast != 183 {
+		t.Errorf("DS3 UVFast (AQ) = %v want 183", ds3.UVFast)
 	}
-	if ds3l.OVStg3 != 259 {
-		t.Errorf("DS3-L OVStg3 (AY) = %v want 259", ds3l.OVStg3)
+	if ds3.OVStg3 != 259 {
+		t.Errorf("DS3 OVStg3 (AY) = %v want 259", ds3.OVStg3)
 	}
-	if ds3l.OFFast != 52.0 {
-		t.Errorf("DS3-L OFFast (AK) = %v want 52.0", ds3l.OFFast)
+	if ds3.OFFast != 52.0 {
+		t.Errorf("DS3 OFFast (AK) = %v want 52.0", ds3.OFFast)
 	}
-	if ds3l.ReconnectS != 60 {
-		t.Errorf("DS3-L ReconnectS (AG) = %v want 60", ds3l.ReconnectS)
+	if ds3.ReconnectS != 60 {
+		t.Errorf("DS3 ReconnectS (AG) = %v want 60", ds3.ReconnectS)
 	}
-	if ds3l.ReconnFHi != 50.2 {
-		t.Errorf("DS3-L ReconnFHi (BQ) = %v want 50.2", ds3l.ReconnFHi)
+	if ds3.ReconnFHi != 50.2 {
+		t.Errorf("DS3 ReconnFHi (BQ) = %v want 50.2", ds3.ReconnFHi)
 	}
 
-	// 999900000002 mirrors a live DS3: AK=51.5, BK=0.12, AG=30.
-	ds3, ok := got["999900000002"]
+	// 999900000002 mirrors a live type-03 inverter (UID 806...) with stricter
+	// OF protection: AK=51.5, BK=0.12, AG=30.
+	qs1, ok := got["999900000002"]
 	if !ok {
 		t.Fatal("missing 999900000002")
 	}
-	if ds3.OFFast != 51.5 {
-		t.Errorf("DS3 OFFast (AK) = %v want 51.5", ds3.OFFast)
+	if qs1.OFFast != 51.5 {
+		t.Errorf("type-03 OFFast (AK) = %v want 51.5", qs1.OFFast)
 	}
-	if ds3.OF2ClrS != 0.12 {
-		t.Errorf("DS3 OF2ClrS (BK) = %v want 0.12", ds3.OF2ClrS)
+	if qs1.OF2ClrS != 0.12 {
+		t.Errorf("type-03 OF2ClrS (BK) = %v want 0.12", qs1.OF2ClrS)
 	}
-	if ds3.ReconnectS != 30 {
-		t.Errorf("DS3 ReconnectS (AG) = %v want 30", ds3.ReconnectS)
+	if qs1.ReconnectS != 30 {
+		t.Errorf("type-03 ReconnectS (AG) = %v want 30", qs1.ReconnectS)
 	}
 }
 

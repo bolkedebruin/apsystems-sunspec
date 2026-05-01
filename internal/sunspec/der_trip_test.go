@@ -7,7 +7,7 @@ import (
 )
 
 func TestEmitDERTripModels_LengthsAndContent(t *testing.T) {
-	// DS3-L active values from live fixture.
+	// DS3 (UID 704...) active values from live fixture.
 	p := source.ProtectionParams{
 		UVStg2: 195, UVFast: 183, OVStg2: 263, OVStg3: 259, AvgOV: 260,
 		UFSlow: 47.5, UFFast: 47.0, OFSlow: 52.0, OFFast: 52.0,
