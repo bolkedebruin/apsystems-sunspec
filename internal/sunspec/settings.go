@@ -11,7 +11,7 @@ import "github.com/bolke/ecu-sunspec/internal/source"
 //
 // Length is fixed at 30 registers per the SunSpec spec.
 func emitBasicSettings(bank *Bank, s source.Snapshot) {
-	bank.put16(121, 30)
+	bank.put16(BasicSettingsModelID, BasicSettingsBodyLen)
 
 	limitedW := s.TotalLimitedW()
 	if limitedW <= 0 || limitedW > 65535 {

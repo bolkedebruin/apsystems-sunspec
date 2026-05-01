@@ -50,11 +50,11 @@ const (
 func (p PhaseMode) modelID() uint16 {
 	switch p {
 	case PhaseSplit:
-		return 102
+		return InverterModelSplitPhase
 	case PhaseThree:
-		return 103
+		return InverterModelThreePhase
 	default:
-		return 101
+		return InverterModelSinglePhase
 	}
 }
 
@@ -68,6 +68,38 @@ func (p PhaseMode) phasesUsed() int {
 		return 1
 	}
 }
+
+// SunSpec model IDs (standard models + our vendor extension).
+//
+// Standard IDs come from the SunSpec specification. The vendor ID lives in
+// the reserved 64000–64999 range; clients that don't recognize it walk past
+// using the L header.
+const (
+	CommonModelID            uint16 = 1
+	InverterModelSinglePhase uint16 = 101
+	InverterModelSplitPhase  uint16 = 102
+	InverterModelThreePhase  uint16 = 103
+	NameplateModelID         uint16 = 120
+	BasicSettingsModelID     uint16 = 121
+	MultiMPPTModelID         uint16 = 160
+	EndModelID               uint16 = 0xFFFF
+)
+
+// Standard SunSpec body lengths (registers, excluding ID + L).
+const (
+	CommonModelBodyLen        uint16 = 66
+	InverterModelBodyLen      uint16 = 50
+	NameplateBodyLen          uint16 = 26
+	BasicSettingsBodyLen      uint16 = 30
+	MultiMPPTFixedBlockLen    uint16 = 8  // body length contribution of the Multi-MPPT header
+	MultiMPPTPerModuleLen     uint16 = 20 // 1 module
+)
+
+// Vendor model layout (64202).
+const (
+	VendorFixedBlockLen   uint16 = 16
+	VendorPerInverterLen  uint16 = 10
+)
 
 // SunSpec "not implemented" sentinels.
 //
@@ -132,7 +164,7 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	bank.put16(0x5375, 0x6E53)
 
 	// --- Common Model (ID 1) ---
-	bank.put16(1, 66) // ID, length (registers, excluding ID+L themselves)
+	bank.put16(CommonModelID, CommonModelBodyLen)
 	bank.putString(opt.Manufacturer, 16)
 	bank.putString(opt.ModelName, 16)
 	bank.putString("", 8) // Options
@@ -142,7 +174,7 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	bank.put16(0)        // Pad
 
 	// --- Inverter Model 101/102/103 (int+SF, identical 50-register layout) ---
-	bank.put16(opt.Phase.modelID(), 50)
+	bank.put16(opt.Phase.modelID(), InverterModelBodyLen)
 	phases := opt.Phase.phasesUsed()
 
 	totalA, perPhaseA := derivePhaseCurrents(s)
@@ -236,7 +268,7 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	emitVendor(&bank, s)
 
 	// --- End marker ---
-	bank.put16(0xFFFF, 0)
+	bank.put16(EndModelID, 0)
 
 	return bank
 }
@@ -426,8 +458,8 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 	}
 	n := uint16(len(panels))
 
-	bodyLen := uint16(8 + 20*int(n))
-	bank.put16(160, bodyLen)
+	bodyLen := MultiMPPTFixedBlockLen + MultiMPPTPerModuleLen*n
+	bank.put16(MultiMPPTModelID, bodyLen)
 
 	// Fixed block (8 regs body)
 	bank.put16(scaleFactor(-1)) // DCA_SF

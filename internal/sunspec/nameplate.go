@@ -9,7 +9,7 @@ import "github.com/bolke/ecu-sunspec/internal/source"
 // current from that. PV (DERTyp=4) inverters have unity power factor in
 // declaration so VA=W and PFRtg* = 1.0 for all four quadrants.
 func emitNameplate(bank *Bank, s source.Snapshot) {
-	bank.put16(120, 26)
+	bank.put16(NameplateModelID, NameplateBodyLen)
 
 	totalW := s.TotalNameplateW()
 	bank.put16(4) // DERTyp: 4 = PV

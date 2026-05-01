@@ -10,7 +10,7 @@ import (
 func TestEncode_Model160_Layout(t *testing.T) {
 	bank := Encode(sampleSnapshot(), Options{})
 
-	mpptHeaderBase, ok := findModel(bank, 160)
+	mpptHeaderBase, ok := findModel(bank, MultiMPPTModelID)
 	if !ok {
 		t.Fatal("Model 160 missing")
 	}
@@ -41,7 +41,7 @@ func TestEncode_Model160_Layout(t *testing.T) {
 func TestEncode_Model160_FirstPanel(t *testing.T) {
 	bank := Encode(sampleSnapshot(), Options{})
 
-	mpptHeaderBase, ok := findModel(bank, 160)
+	mpptHeaderBase, ok := findModel(bank, MultiMPPTModelID)
 	if !ok {
 		t.Fatal("Model 160 missing")
 	}
@@ -67,7 +67,7 @@ func TestEncode_Model160_FirstPanel(t *testing.T) {
 func TestEncode_Model160_PanelLayoutMatchesInverterTypes(t *testing.T) {
 	bank := Encode(sampleSnapshot(), Options{})
 
-	mpptHeaderBase, ok := findModel(bank, 160)
+	mpptHeaderBase, ok := findModel(bank, MultiMPPTModelID)
 	if !ok {
 		t.Fatal("Model 160 missing")
 	}
@@ -99,7 +99,7 @@ func TestEncode_Model160_OmittedWhenNoInvertersOnline(t *testing.T) {
 	}
 	bank := Encode(s, Options{})
 
-	if _, ok := findModel(bank, 160); ok {
+	if _, ok := findModel(bank, MultiMPPTModelID); ok {
 		t.Error("Model 160 should be omitted when no panels are present")
 	}
 }
@@ -107,7 +107,7 @@ func TestEncode_Model160_OmittedWhenNoInvertersOnline(t *testing.T) {
 func TestEncode_Model160_DisableFlagSkipsModel(t *testing.T) {
 	bank := Encode(sampleSnapshot(), Options{DisableMPPT: true})
 
-	if _, ok := findModel(bank, 160); ok {
+	if _, ok := findModel(bank, MultiMPPTModelID); ok {
 		t.Error("DisableMPPT=true: Model 160 should be skipped")
 	}
 }
@@ -140,7 +140,7 @@ func TestEncode_Model160_PanelCountFromMixedTypes(t *testing.T) {
 				s.Inverters = append(s.Inverters, inv)
 			}
 			bank := Encode(s, Options{})
-			mpptHeaderBase, ok := findModel(bank, 160)
+			mpptHeaderBase, ok := findModel(bank, MultiMPPTModelID)
 			if !ok {
 				t.Fatal("Model 160 missing")
 			}

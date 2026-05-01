@@ -14,13 +14,13 @@ const VendorModelID = 64202
 // that don't fit into standard SunSpec fields.
 //
 // Layout:
-//   Fixed block (system-wide, 14 regs):
-//     PollingS (uint16)         - /etc/yuneng/polling_interval.conf
-//     EcuFwVer (8 regs string)  - /etc/yuneng/version.conf
-//     TodayWh  (acc32)          - daily_energy * 1000
-//     MonthWh  (acc32)          - monthly_energy * 1000
-//     YearWh   (acc32)          - yearly_energy * 1000
-//     N        (uint16)         - number of per-inverter rows
+//   Fixed block (system-wide, 16 regs):
+//     PollingS (uint16)         - /etc/yuneng/polling_interval.conf       (1)
+//     EcuFwVer (8 regs string)  - /etc/yuneng/version.conf                (8)
+//     TodayWh  (acc32)          - daily_energy   × 1000                   (2)
+//     MonthWh  (acc32)          - monthly_energy × 1000                   (2)
+//     YearWh   (acc32)          - yearly_energy  × 1000                   (2)
+//     N        (uint16)         - number of per-inverter rows             (1)
 //
 //   Per-inverter block (10 regs each):
 //     Idx          (uint16)         - 1-based row index
@@ -34,13 +34,13 @@ const VendorModelID = 64202
 //     Online       (uint16)         - 1=online, 0=offline
 //     Pad          (uint16)
 //
-// Total body length = 14 + 10·N. Skipped entirely if no inverters are present.
+// Total body length = 16 + 10·N. Skipped entirely if no inverters are present.
 func emitVendor(bank *Bank, s source.Snapshot) {
 	if len(s.Inverters) == 0 {
 		return
 	}
 	n := uint16(len(s.Inverters))
-	body := uint16(14 + 10*int(n))
+	body := VendorFixedBlockLen + VendorPerInverterLen*n
 
 	bank.put16(VendorModelID, body)
 

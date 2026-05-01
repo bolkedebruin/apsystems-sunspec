@@ -45,7 +45,7 @@ func TestEncode_ExplicitPhaseOverride(t *testing.T) {
 		},
 	}
 	bank := Encode(s, Options{Phase: PhaseThree})
-	if got := bank.At(BaseRegister + 70); got != 103 {
+	if got := bank.At(BaseRegister + 70); got != InverterModelThreePhase {
 		t.Errorf("expected forced 103, got %d", got)
 	}
 }

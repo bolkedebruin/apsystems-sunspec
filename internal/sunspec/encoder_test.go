@@ -92,7 +92,7 @@ func TestEncode_LayoutInvariants(t *testing.T) {
 	// Walk the bank with findModel — no hardcoded offsets so the test survives
 	// future model additions or removals.
 
-	if invBase, ok := findModel(bank, 101); !ok {
+	if invBase, ok := findModel(bank, InverterModelSinglePhase); !ok {
 		t.Error("Inverter Model 101 missing")
 	} else if bank.At(invBase+1) != 50 {
 		t.Errorf("inverter L=%d want 50", bank.At(invBase+1))
@@ -100,7 +100,7 @@ func TestEncode_LayoutInvariants(t *testing.T) {
 
 	// Sample has 3 inverters: 1 type-01 (2 panels) + 2 type-03 (4 panels each)
 	// = 10 panels total. Body length = 8 + 20·10 = 208.
-	if mpptBase, ok := findModel(bank, 160); !ok {
+	if mpptBase, ok := findModel(bank, MultiMPPTModelID); !ok {
 		t.Error("Multi-MPPT Model 160 missing")
 	} else {
 		const wantL uint16 = 8 + 20*10
@@ -109,10 +109,10 @@ func TestEncode_LayoutInvariants(t *testing.T) {
 		}
 	}
 
-	if _, ok := findModel(bank, 120); !ok {
+	if _, ok := findModel(bank, NameplateModelID); !ok {
 		t.Error("Nameplate Model 120 missing")
 	}
-	if _, ok := findModel(bank, 121); !ok {
+	if _, ok := findModel(bank, BasicSettingsModelID); !ok {
 		t.Error("Basic Settings Model 121 missing")
 	}
 	if _, ok := findModel(bank, VendorModelID); !ok {
@@ -161,7 +161,7 @@ func TestEncode_CommonModelStrings(t *testing.T) {
 func TestEncode_InverterModelKeyFields(t *testing.T) {
 	bank := Encode(sampleSnapshot(), Options{})
 
-	invBase, ok := findModel(bank, 101)
+	invBase, ok := findModel(bank, InverterModelSinglePhase)
 	if !ok {
 		t.Fatal("Inverter Model 101 missing")
 	}
@@ -191,7 +191,7 @@ func TestEncode_OffStateWhenNoPower(t *testing.T) {
 	s.SystemPowerW = 0
 	s.InverterOnlineCount = 0
 	bank := Encode(s, Options{})
-	invBase, ok := findModel(bank, 101)
+	invBase, ok := findModel(bank, InverterModelSinglePhase)
 	if !ok {
 		t.Fatal("Inverter Model 101 missing")
 	}
@@ -206,7 +206,7 @@ func TestEncode_StandbyAtNight(t *testing.T) {
 	s.SystemPowerW = 0
 	// Inverters online but not producing — represents grid present, sun down.
 	bank := Encode(s, Options{})
-	invBase, ok := findModel(bank, 101)
+	invBase, ok := findModel(bank, InverterModelSinglePhase)
 	if !ok {
 		t.Fatal("Inverter Model 101 missing")
 	}
@@ -236,7 +236,7 @@ func TestEncode_DerivedPhaseCurrents(t *testing.T) {
 	bank := Encode(s, Options{})
 
 	// All inverters phase=1 → all power on phase A.
-	invBase, ok := findModel(bank, 101)
+	invBase, ok := findModel(bank, InverterModelSinglePhase)
 	if !ok {
 		t.Fatal("Inverter Model 101 missing")
 	}
