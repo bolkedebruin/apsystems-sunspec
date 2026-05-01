@@ -169,8 +169,8 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 		}
 		bank.put16(dcw)
 
-		bank.putAcc32(0) // DCWH
-		bank.putAcc32(0) // Tms — not tracked per-panel
+		bank.putAcc32(0)                     // DCWH — per-panel lifetime not tracked
+		bank.putAcc32(uint64(notImplU32))    // Tms — emit "not implemented" sentinel
 
 		bank.put16(uint16(int16(clampInt32(int32(inv.TemperatureC), -100, 200))))
 

@@ -470,10 +470,12 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 	bank.put16(n)               // N
 	bank.put16(notImplU16)      // TmsPer
 
-	tms := uint64(0)
-	if !s.Captured.IsZero() {
-		tms = uint64(s.Captured.Unix())
-	}
+	// Tms is per-module timestamp. APsystems polls every inverter in a single
+	// cycle, so every panel would carry the same value here — 10 identical
+	// "Timestamp" sensors in HA. Emit the uint32 not-implemented sentinel
+	// instead; clients that care about freshness can read the snapshot's
+	// vendor-model fields or the SunSpec Common Model timestamp.
+	const tmsNotImpl uint64 = uint64(notImplU32)
 
 	for i, e := range panels {
 		bank.put16(uint16(i + 1))
@@ -503,8 +505,8 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 		}
 		bank.put16(dcw)
 
-		bank.putAcc32(0) // DCWH
-		bank.putAcc32(tms)
+		bank.putAcc32(0)         // DCWH — per-panel lifetime not tracked
+		bank.putAcc32(tmsNotImpl) // Tms — same for all panels; expose as not-implemented
 
 		// Tmp — share inverter cabinet temperature
 		bank.put16(uint16(int16(clampInt32(int32(e.inv.TemperatureC), -100, 200))))
