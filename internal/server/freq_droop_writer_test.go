@@ -111,11 +111,44 @@ func TestFreqDroopWriter_RequiresAKToValidate(t *testing.T) {
 	}
 }
 
-func TestFreqDroopWriter_KOfReadOnly(t *testing.T) {
+func TestFreqDroopWriter_KOfHappyPath(t *testing.T) {
+	fdw, dir := newFreqDroopWriterFixture(t, 2, activeProt(), "INV-A")
+	// KOf = 400 deci-percent → 40 %P/Hz (VDE-AR-N 4105 default, 5% droop).
+	if err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{400}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, ok := readQueuedParam(t, dir, "INV-A", "Over_Frequency_Watt_Slope_set")
+	if !ok {
+		t.Fatal("expected slope queue row")
+	}
+	if got != 40.0 {
+		t.Errorf("slope=%v want 40.0 (%%P/Hz)", got)
+	}
+}
+
+func TestFreqDroopWriter_KOfRangeRejection(t *testing.T) {
 	fdw, _ := newFreqDroopWriterFixture(t, 2, activeProt(), "INV-A")
-	// KOf at offset 16 must be rejected this iteration.
-	if err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{555}); err == nil {
-		t.Error("expected error for KOf write (read-only this iteration)")
+	// Below 100 (10 %P/Hz) is non-compliant. Above 1500 (150 %P/Hz) too steep.
+	for _, kOf := range []uint16{0, 50, 99, 1501, 5000} {
+		if err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{kOf}); err == nil {
+			t.Errorf("kOf=%d: expected range error, got nil", kOf)
+		}
+	}
+}
+
+func TestFreqDroopWriter_KOfValidExtremes(t *testing.T) {
+	fdw, _ := newFreqDroopWriterFixture(t, 2, activeProt(), "INV-A")
+	// 100 (10 %P/Hz) — SMA installer minimum
+	if err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{100}); err != nil {
+		t.Errorf("kOf=100 (10 %%P/Hz): %v", err)
+	}
+	// 1500 (150 %P/Hz) — IEEE 1547-2018 default territory
+	if err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{1500}); err != nil {
+		t.Errorf("kOf=1500 (150 %%P/Hz): %v", err)
+	}
+	// 167 (16.7 %P/Hz) — EN 50549-1 maximum allowed droop
+	if err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{167}); err != nil {
+		t.Errorf("kOf=167 (16.7 %%P/Hz, EN50549 12%% droop): %v", err)
 	}
 }
 
