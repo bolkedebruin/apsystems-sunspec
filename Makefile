@@ -82,6 +82,8 @@ package: ecu
 	@chmod 0755 $(DIST)/pkgroot/update/etc-init-d/S99-sunspec
 	@cp packaging/sunspec.json $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
 	@chmod 0644 $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
+	@cp packaging/nameplate.json $(DIST)/pkgroot/update/etc-sunspec/sunspec-nameplate.json
+	@chmod 0644 $(DIST)/pkgroot/update/etc-sunspec/sunspec-nameplate.json
 	@(cd $(DIST)/pkgroot && tar -cjf ../apsystems-sunspec-$(VERSION).tar.bz2 .)
 	@rm -rf $(DIST)/pkgroot
 	@ls -lh $(DIST)/apsystems-sunspec-$(VERSION).tar.bz2
@@ -117,6 +119,8 @@ package-with-dropbear: ecu
 	@chmod 0755 $(DIST)/pkgroot/update/etc-init-d/*
 	@cp packaging/sunspec.json $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
 	@chmod 0644 $(DIST)/pkgroot/update/etc-sunspec/sunspec.json
+	@cp packaging/nameplate.json $(DIST)/pkgroot/update/etc-sunspec/sunspec-nameplate.json
+	@chmod 0644 $(DIST)/pkgroot/update/etc-sunspec/sunspec-nameplate.json
 	@for f in dropbear dropbearkey dropbearconvert dbclient scp authorized_keys; do \
 		[ -f "$(DROPBEAR_DIR)/$$f" ] && cp "$(DROPBEAR_DIR)/$$f" $(DIST)/pkgroot/update/dropbear/ && echo "  +dropbear/$$f" || true; \
 	done

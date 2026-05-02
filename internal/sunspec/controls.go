@@ -99,10 +99,44 @@ func emitControls(bank *Bank, currentPct uint16, ena uint16, conn uint16) {
 	bank.put16(scaleFactor(0)) // +23 VArPct_SF
 }
 
+// invCapPct converts a per-inverter panel-cap state to a SunSpec
+// WMaxLimPct value: the effective output ceiling (panel_cap × panel_count)
+// expressed as a percentage of the inverter's AC nameplate. Clamped 0-100.
+//
+// Per-panel cap above MaxPanelLimitW is treated as uncapped (returns 100).
+// Inverters with no known nameplate fall back to the panel-cap-as-% logic
+// — gives a sensible 0-100 sweep even when nameplate isn't available.
+func invCapPct(inv source.Inverter) int {
+	cap := inv.LimitedPowerW
+	if cap == 0 {
+		cap = source.MaxPanelLimitW
+	}
+	nameplate := inv.NameplateW()
+	if nameplate <= 0 {
+		// Fallback when nameplate isn't available: per-panel cap as %.
+		p := (cap * 100) / source.MaxPanelLimitW
+		if p > 100 {
+			p = 100
+		}
+		return p
+	}
+	// Effective inverter ceiling = panel_cap × panel_count, clamped to
+	// the AC nameplate (the inverter throttles below DC sum anyway).
+	effective := cap * inv.PanelCount()
+	if effective > nameplate {
+		effective = nameplate
+	}
+	p := (effective * 100) / nameplate
+	if p > 100 {
+		p = 100
+	}
+	return p
+}
+
 // AggregateControlsState computes the current Model 123 values for the
 // aggregate bank (uid 1) from the snapshot.
 //
-// WMaxLim_Pct: average across inverters of (limitedpower / max) × 100.
+// WMaxLim_Pct: average across inverters of (effective output cap / nameplate) × 100.
 // WMaxLim_Ena: 1 if any inverter has limitedpower < max, else 0.
 // Conn: 1 if any inverter online, 0 if all offline.
 func AggregateControlsState(s source.Snapshot) (pct uint16, ena uint16, conn uint16) {
@@ -113,16 +147,11 @@ func AggregateControlsState(s source.Snapshot) (pct uint16, ena uint16, conn uin
 	limited := 0
 	online := 0
 	for _, inv := range s.Inverters {
-		// Per-panel cap → % of MaxPanelLimitW.
+		totalPct += invCapPct(inv)
 		cap := inv.LimitedPowerW
 		if cap == 0 {
 			cap = source.MaxPanelLimitW
 		}
-		thisPct := (cap * 100) / source.MaxPanelLimitW
-		if thisPct > 100 {
-			thisPct = 100
-		}
-		totalPct += thisPct
 		if cap < source.MaxPanelLimitW {
 			limited++
 		}
@@ -144,15 +173,11 @@ func AggregateControlsState(s source.Snapshot) (pct uint16, ena uint16, conn uin
 // PerInverterControlsState computes Model 123 values for one inverter
 // (uid 2..N+1).
 func PerInverterControlsState(inv source.Inverter) (pct uint16, ena uint16, conn uint16) {
+	pct = uint16(invCapPct(inv))
 	cap := inv.LimitedPowerW
 	if cap == 0 {
 		cap = source.MaxPanelLimitW
 	}
-	p := (cap * 100) / source.MaxPanelLimitW
-	if p > 100 {
-		p = 100
-	}
-	pct = uint16(p)
 	if cap < source.MaxPanelLimitW {
 		ena = 1
 	}

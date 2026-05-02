@@ -36,9 +36,12 @@ func TestEncodePerInverter_BasicShape(t *testing.T) {
 	if _, ok := findModel(bank, MultiMPPTModelID); !ok {
 		t.Error("Multi-MPPT missing")
 	}
-	// Aggregate-only models must NOT appear in per-inverter bank.
-	if _, ok := findModel(bank, NameplateModelID); ok {
-		t.Error("Nameplate (120) should not be in per-inverter bank")
+	// Per-inverter banks now expose Model 120 (each inverter's own
+	// nameplate watts via the model_int → watts table). The fleet-aggregate
+	// Basic Settings (121) and Vendor (64202) models still belong only to
+	// the aggregate bank.
+	if _, ok := findModel(bank, NameplateModelID); !ok {
+		t.Error("Nameplate (120) should be present in per-inverter bank")
 	}
 	if _, ok := findModel(bank, BasicSettingsModelID); ok {
 		t.Error("Basic Settings (121) should not be in per-inverter bank")

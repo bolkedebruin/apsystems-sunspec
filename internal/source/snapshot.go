@@ -1,6 +1,12 @@
 package source
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+)
 
 // AggregateEventBits returns the bitwise-OR of every inverter's EventBits.
 // Used by the aggregate SunSpec bank's Inverter Model so an alarm on any one
@@ -26,6 +32,7 @@ type Snapshot struct {
 	PollingInterval int // seconds; 0 = unknown / default
 
 	SystemPowerW        int32   // each_system_power latest sample
+	SystemMaxPowerW     int32   // /tmp/powerALL.conf — APsystems' authoritative fleet capacity (sum of per-inverter nameplate watts, computed by main.exe at startup; 0 if not readable)
 	LifetimeEnergyWh    uint64  // lifetime_energy * 1000
 	TodayEnergyWh       uint64  // daily_energy of today * 1000
 	MonthEnergyWh       uint64  // monthly_energy of current month * 1000
@@ -150,13 +157,82 @@ func (inv Inverter) PanelPowers() []int {
 	return nil
 }
 
-// NameplateW is the rated AC output watts for this inverter type.
+// nameplateByModel maps the per-inverter `model` integer (from `id.model`
+// in the ECU's database.db) to its rated AC output in watts.
 //
-// Reference: APsystems datasheets — DS3 730W (DS3-S variant) up to ~880W
-// standard, QS1 1200-1500W (4-channel single-phase), DS3-H / DS3D-L 880W.
-// Values here are conservative typicals; vendor model 64202 carries the
-// exact per-inverter nameplate when needed for billing accuracy.
+// Populated at startup from a JSON file (see LoadNameplateTable). The
+// table is a lookup file — not hardcoded — so adding an entry for a new
+// submodel doesn't require rebuilding the binary.
+//
+// Empty by default; lookups fall through to TypeCode-based defaults.
+var nameplateByModel = map[int]int{}
+
+// LoadNameplateTable replaces the model→watts table with the contents of
+// a JSON file. Format:
+//
+//	{
+//	  "models": {
+//	    "24": {"nameplate_w": 1600, "label": "QS1A T24 (EU)"},
+//	    "32": {"nameplate_w": 750,  "label": "DS3 EU"}
+//	  }
+//	}
+//
+// Returns the number of entries loaded. A missing file is not an error
+// (returns 0, nil); only malformed JSON or unreadable file content errors.
+//
+// Derive entries by reading /tmp/powerALL.conf (APsystems' own fleet total)
+// and the `model` integers from /home/database.db's `id` table, then
+// solving the per-model values from fleet compositions where the hardware
+// is known.
+func LoadNameplateTable(path string) (int, error) {
+	if path == "" {
+		return 0, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	var doc struct {
+		Models map[string]struct {
+			NameplateW int    `json:"nameplate_w"`
+			Label      string `json:"label"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return 0, fmt.Errorf("parse %s: %w", path, err)
+	}
+	tbl := make(map[int]int, len(doc.Models))
+	for k, v := range doc.Models {
+		mid, err := strconv.Atoi(k)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: model key %q is not an integer", path, k)
+		}
+		if v.NameplateW > 0 {
+			tbl[mid] = v.NameplateW
+		}
+	}
+	nameplateByModel = tbl
+	return len(tbl), nil
+}
+
+// NameplateW is the rated AC output watts for this inverter.
+//
+// Lookup priority:
+//  1. The model_int → watts table loaded from JSON via LoadNameplateTable
+//  2. TypeCode-based default — coarser fallback when the table doesn't
+//     cover this submodel (or no table file is configured)
+//
+// The Snapshot.SystemMaxPowerW value (read from /tmp/powerALL.conf) is the
+// authoritative fleet total when available; the per-inverter value here
+// is what we surface in per-inverter SunSpec banks (UID 2..N+1) where a
+// per-device value is required.
 func (inv Inverter) NameplateW() int {
+	if w, ok := nameplateByModel[inv.Model]; ok {
+		return w
+	}
 	switch inv.TypeCode {
 	case "01":
 		return 730

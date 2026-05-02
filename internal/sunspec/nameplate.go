@@ -4,14 +4,22 @@ import "github.com/bolke/ecu-sunspec/internal/source"
 
 // emitNameplate writes SunSpec Model 120 (Nameplate Ratings).
 //
-// Length is fixed at 26 registers per the SunSpec spec. The values come from
-// summing per-inverter NameplateW(); we derive max apparent power and rated
-// current from that. PV (DERTyp=4) inverters have unity power factor in
-// declaration so VA=W and PFRtg* = 1.0 for all four quadrants.
+// Length is fixed at 26 registers per the SunSpec spec. PV (DERTyp=4)
+// inverters have unity power factor in declaration so VA=W and PFRtg* = 1.0
+// for all four quadrants.
+//
+// WRtg priority: the authoritative fleet capacity from /tmp/powerALL.conf
+// (the same number APsystems' EMA app shows as "system capacity") if
+// available, else fall back to the sum of per-inverter NameplateW(). The
+// /tmp/powerALL.conf value matches APsystems' internal model→watts table,
+// so prefer it when running on-box.
 func emitNameplate(bank *Bank, s source.Snapshot) {
 	bank.put16(NameplateModelID, NameplateBodyLen)
 
-	totalW := s.TotalNameplateW()
+	totalW := int(s.SystemMaxPowerW)
+	if totalW <= 0 {
+		totalW = s.TotalNameplateW()
+	}
 	bank.put16(4) // DERTyp: 4 = PV
 
 	// WRtg / WRtg_SF
@@ -54,4 +62,46 @@ func emitNameplate(bank *Bank, s source.Snapshot) {
 
 	// Pad — Model 120 body length is 26; emitted 25 above so +1.
 	bank.put16(0)
+}
+
+// emitNameplatePerInverter writes Model 120 with this single inverter's
+// nameplate values. Called by EncodePerInverterWithProtection for the
+// per-inverter banks (UID 2..N+1).
+func emitNameplatePerInverter(bank *Bank, inv source.Inverter) {
+	bank.put16(NameplateModelID, NameplateBodyLen)
+
+	w := inv.NameplateW()
+	bank.put16(4) // DERTyp: 4 = PV
+
+	bank.put16(uint16(clampInt32(int32(w), 0, 65535))) // WRtg
+	bank.put16(scaleFactor(0))
+
+	bank.put16(uint16(clampInt32(int32(w), 0, 65535))) // VARtg = WRtg for unity-PF PV
+	bank.put16(scaleFactor(0))
+
+	bank.put16(notImplS16, notImplS16, notImplS16, notImplS16) // VArRtgQ1..Q4
+	bank.put16(scaleFactor(0))
+
+	var aRtg uint16
+	if w > 0 {
+		aRtg = uint16(float64(w)/230.0*10 + 0.5)
+	}
+	bank.put16(aRtg)
+	bank.put16(scaleFactor(-1))
+
+	bank.put16(1000, 1000, 1000, 1000) // PFRtgQ1..Q4 = 1.000 for PV
+	bank.put16(scaleFactor(-3))
+
+	bank.put16(notImplU16) // WHRtg (battery — N/A)
+	bank.put16(scaleFactor(0))
+
+	bank.put16(notImplU16) // AhrRtg
+	bank.put16(scaleFactor(0))
+
+	bank.put16(notImplU16) // MaxChaRte
+	bank.put16(scaleFactor(0))
+	bank.put16(notImplU16) // MaxDisChaRte
+	bank.put16(scaleFactor(0))
+
+	bank.put16(0) // Pad
 }

@@ -39,9 +39,16 @@ func main() {
 		logMaxBackups = flag.Int("log-max-backups", 3, "rotated log files retained")
 		logMaxAgeDays = flag.Int("log-max-age", 7, "rotated log retention days")
 
-		configPath = flag.String("config", config.DefaultPath, "path to JSON config file (writes.enabled / writes.allow_list); missing file = writes disabled")
+		configPath    = flag.String("config", config.DefaultPath, "path to JSON config file (writes.enabled / writes.allow_list); missing file = writes disabled")
+		nameplatePath = flag.String("nameplate-file", "/home/sunspec-nameplate.json", "path to JSON model_int→watts table; missing file = TypeCode-based fallback")
 	)
 	flag.Parse()
+
+	if n, err := source.LoadNameplateTable(*nameplatePath); err != nil {
+		fmt.Fprintf(os.Stderr, "ecu-sunspec: nameplate-file %s: %v\n", *nameplatePath, err)
+	} else if n > 0 {
+		fmt.Fprintf(os.Stderr, "ecu-sunspec: loaded %d nameplate entries from %s\n", n, *nameplatePath)
+	}
 
 	var logSink io.Writer = os.Stderr
 	if *logFile != "" {

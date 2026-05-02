@@ -45,6 +45,14 @@ func readTrim(dir, name string) string {
 	return strings.TrimSpace(string(b))
 }
 
+func readIntFile(path string) (int, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(b)))
+}
+
 // Build produces a fresh snapshot. Errors from optional sources are not fatal:
 // they log into the snapshot's ECUID-prefixed missing fields as zeros and the
 // caller decides what to surface upstream.
@@ -59,6 +67,14 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 		if n, err := strconv.Atoi(v); err == nil {
 			s.PollingInterval = n
 		}
+	}
+
+	// Authoritative fleet capacity, written by main.exe at startup as the
+	// sum of per-inverter nameplate watts (the same number the EMA app
+	// reports as "system capacity"). Read once per snapshot — main.exe
+	// only rewrites this file when the inverter inventory changes.
+	if v, err := readIntFile("/tmp/powerALL.conf"); err == nil && v > 0 {
+		s.SystemMaxPowerW = int32(v)
 	}
 
 	// Energy + system power from historical.db.
