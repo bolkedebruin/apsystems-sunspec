@@ -73,12 +73,34 @@ func (s Snapshot) TotalPanelCount() int {
 	return n
 }
 
-// TotalLimitedW returns the sum of per-panel curtailment caps × panel count.
-// Used for SunSpec Model 121 (Basic Settings).
+// TotalLimitedW returns the user-configured fleet maximum active power
+// — what SunSpec Model 121 calls WMax.
+//
+// Per inverter, the effective AC ceiling is min(LimitedPowerW × panel_count,
+// NameplateW): the per-panel DC cap can exceed the AC inverter's nameplate
+// (e.g. 4 × 500 W = 2000 W DC sum vs 1600 W AC on a QS1A), but the
+// inverter throttles below the DC sum. The effective ceiling is the
+// smaller of the two.
+//
+// When the inverter is uncapped (LimitedPowerW = MaxPanelLimitW) the
+// per-inverter contribution equals NameplateW, so the fleet total
+// matches WRtg. Curtailing below nameplate scales the contribution
+// down per the user's setpoint.
+//
+// When NameplateW is unknown (model_int not in the lookup table and no
+// TypeCode default), this falls back to LimitedPowerW × panel_count
+// — the historical behavior, kept so the model works on hardware
+// without a catalogued nameplate.
 func (s Snapshot) TotalLimitedW() int {
 	sum := 0
 	for _, inv := range s.Inverters {
-		sum += inv.LimitedPowerW * inv.PanelCount()
+		dc := inv.LimitedPowerW * inv.PanelCount()
+		ac := inv.NameplateW()
+		if ac > 0 && ac < dc {
+			sum += ac
+		} else {
+			sum += dc
+		}
 	}
 	return sum
 }
