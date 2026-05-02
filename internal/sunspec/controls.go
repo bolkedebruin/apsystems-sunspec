@@ -9,34 +9,40 @@ const (
 )
 
 // Field offsets within the Model 123 body (0 = first reg after the L
-// register). Used by the writer code to map register addresses to actions.
+// register). Layout per the SunSpec Model 123 (Inverter Controls)
+// specification — must match `model_123.json` field order or pysunspec2
+// reads will be misaligned:
 //
-// Layout per SunSpec:
+//	+0  Conn_WinTms          uint16  sec
+//	+1  Conn_RvrtTms         uint16  sec
+//	+2  Conn                 enum16  [DISCONNECT, CONNECT]
+//	+3  WMaxLimPct           uint16  % WMax
+//	+4  WMaxLimPct_WinTms    uint16  sec
+//	+5  WMaxLimPct_RvrtTms   uint16  sec
+//	+6  WMaxLimPct_RmpTms    uint16  sec
+//	+7  WMaxLim_Ena          enum16  [DISABLED, ENABLED]
+//	+8  OutPFSet             int16   cos()  (PF×1000 with sf=OutPFSet_SF)
+//	+9  OutPFSet_WinTms      uint16  sec
+//	+10 OutPFSet_RvrtTms     uint16  sec
+//	+11 OutPFSet_RmpTms      uint16  sec
+//	+12 OutPFSet_Ena         enum16  [DISABLED, ENABLED]
+//	+13 VArWMaxPct           int16   % WMax
+//	+14 VArMaxPct            int16   % VArMax
+//	+15 VArAvalPct           int16   % VArAval
+//	+16 VArPct_WinTms        uint16  sec
+//	+17 VArPct_RvrtTms       uint16  sec
+//	+18 VArPct_RmpTms        uint16  sec
+//	+19 VArPct_Mod           enum16  [NONE, WMax, VArMax, VArAval]
+//	+20 VArPct_Ena           enum16  [DISABLED, ENABLED]
+//	+21 WMaxLimPct_SF        sunssf
+//	+22 OutPFSet_SF          sunssf
+//	+23 VArPct_SF            sunssf
 //
-//	+0  Conn_WinTms        uint16   sec     window for Conn
-//	+1  Conn_RvrtTms       uint16   sec     auto-revert
-//	+2  Conn               enum16   0=disconnect, 1=connect
-//	+3  WMaxLim_Pct        uint16   %       cap as % of nameplate
-//	+4  WMaxLim_Pct_WinTms uint16   sec
-//	+5  WMaxLim_Pct_RvrtTms uint16  sec
-//	+6  WMaxLim_Pct_RmpTms uint16   sec
-//	+7  WMaxLim_Ena        enum16   0=off, 1=on
-//	+8  OutPFSet           int16    PF*1000  not implemented for APsystems
-//	+9  OutPFSet_WinTms    uint16
-//	+10 OutPFSet_RvrtTms   uint16
-//	+11 OutPFSet_RmpTms    uint16
-//	+12 OutPFSet_Ena       enum16
-//	+13 VArWMaxPct         int16    not implemented
-//	+14 VArMax_WinTms      uint16
-//	+15 VArMax_RvrtTms     uint16
-//	+16 VArMax_RmpTms      uint16
-//	+17 VArPct_Mod         enum16
-//	+18 VArPct_Ena         enum16
-//	+19 WMaxLim_Pct_SF     sunssf
-//	+20 OutPFSet_SF        sunssf
-//	+21 VArPct_SF          sunssf
-//	+22 (pad)
-//	+23 (pad)
+// APsystems firmware doesn't expose Q (reactive power) control or a
+// scalar PF setpoint, so OutPFSet, VArWMaxPct, VArMaxPct, VArAvalPct are
+// emitted as "not implemented" sentinels (notImplS16) and the *_Ena /
+// *_Mod fields stay 0 / DISABLED. Field offsets are exported only for
+// the writable subset (Conn, WMaxLimPct, WMaxLim_Ena).
 const (
 	OffControlsConnWinTms        uint16 = 0
 	OffControlsConnRvrtTms       uint16 = 1
@@ -60,33 +66,33 @@ const (
 func emitControls(bank *Bank, currentPct uint16, ena uint16, conn uint16) {
 	bank.put16(ControlsModelID, ControlsBodyLen)
 
-	bank.put16(0)          // Conn_WinTms — not used (immediate)
-	bank.put16(0)          // Conn_RvrtTms
-	bank.put16(conn)       // Conn — 1=connected, 0=disconnected
-	bank.put16(currentPct) // WMaxLim_Pct — current cap %
-	bank.put16(0)          // WMaxLim_Pct_WinTms
-	bank.put16(0)          // WMaxLim_Pct_RvrtTms — auto-revert not supported
-	bank.put16(0)          // WMaxLim_Pct_RmpTms
-	bank.put16(ena)        // WMaxLim_Ena
+	bank.put16(0)          // +0  Conn_WinTms       — auto-revert not implemented
+	bank.put16(0)          // +1  Conn_RvrtTms
+	bank.put16(conn)       // +2  Conn              — 1=CONNECT, 0=DISCONNECT
+	bank.put16(currentPct) // +3  WMaxLimPct        — current cap %
+	bank.put16(0)          // +4  WMaxLimPct_WinTms — auto-revert not implemented
+	bank.put16(0)          // +5  WMaxLimPct_RvrtTms
+	bank.put16(0)          // +6  WMaxLimPct_RmpTms
+	bank.put16(ena)        // +7  WMaxLim_Ena       — 1=ENABLED, 0=DISABLED
 
-	bank.put16(notImplS16) // OutPFSet
-	bank.put16(0)          // OutPFSet_WinTms
-	bank.put16(0)          // OutPFSet_RvrtTms
-	bank.put16(0)          // OutPFSet_RmpTms
-	bank.put16(0)          // OutPFSet_Ena (disabled)
+	bank.put16(notImplS16) // +8  OutPFSet          — APsystems has no scalar PF setpoint
+	bank.put16(0)          // +9  OutPFSet_WinTms
+	bank.put16(0)          // +10 OutPFSet_RvrtTms
+	bank.put16(0)          // +11 OutPFSet_RmpTms
+	bank.put16(0)          // +12 OutPFSet_Ena      — DISABLED
 
-	bank.put16(notImplS16) // VArWMaxPct
-	bank.put16(0)          // VArMax_WinTms
-	bank.put16(0)          // VArMax_RvrtTms
-	bank.put16(0)          // VArMax_RmpTms
-	bank.put16(0)          // VArPct_Mod
-	bank.put16(0)          // VArPct_Ena
+	bank.put16(notImplS16) // +13 VArWMaxPct        — APsystems is real-power only
+	bank.put16(notImplS16) // +14 VArMaxPct
+	bank.put16(notImplS16) // +15 VArAvalPct
+	bank.put16(0)          // +16 VArPct_WinTms
+	bank.put16(0)          // +17 VArPct_RvrtTms
+	bank.put16(0)          // +18 VArPct_RmpTms
+	bank.put16(0)          // +19 VArPct_Mod        — NONE
+	bank.put16(0)          // +20 VArPct_Ena        — DISABLED
 
-	bank.put16(scaleFactor(0)) // WMaxLim_Pct_SF — % is integer
-	bank.put16(scaleFactor(0)) // OutPFSet_SF
-	bank.put16(scaleFactor(0)) // VArPct_SF
-
-	bank.put16(0, 0) // padding to length 24
+	bank.put16(scaleFactor(0)) // +21 WMaxLimPct_SF — % is integer
+	bank.put16(scaleFactor(0)) // +22 OutPFSet_SF
+	bank.put16(scaleFactor(0)) // +23 VArPct_SF
 }
 
 // AggregateControlsState computes the current Model 123 values for the
