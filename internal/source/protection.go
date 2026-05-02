@@ -102,15 +102,15 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 	out := make(map[string]ProtectionParams)
 	for rows.Next() {
 		var (
-			uid string
-			ab, ac, ad, ae, af                 sql.NullFloat64
-			ag, ah, ai, aj, ak                 sql.NullFloat64
-			aq, asStart, ay                    sql.NullFloat64
-			bb, bc, bd, be                     sql.NullFloat64
-			bh, bi, bj, bk                     sql.NullFloat64
-			bn, bo, bp, bq                     sql.NullFloat64
-			ch                                 sql.NullFloat64
-			cc, cv, dc, dd                     sql.NullFloat64
+			uid                string
+			ab, ac, ad, ae, af sql.NullFloat64
+			ag, ah, ai, aj, ak sql.NullFloat64
+			aq, asStart, ay    sql.NullFloat64
+			bb, bc, bd, be     sql.NullFloat64
+			bh, bi, bj, bk     sql.NullFloat64
+			bn, bo, bp, bq     sql.NullFloat64
+			ch                 sql.NullFloat64
+			cc, cv, dc, dd     sql.NullFloat64
 		)
 		if err := rows.Scan(&uid,
 			&ab, &ac, &ad, &ae, &af,

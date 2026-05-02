@@ -58,12 +58,12 @@ type FreqDroopWriter struct {
 
 const (
 	// Body offsets within Model 711 (excluding ID + L).
-	freqDroopBodyEna       = 0
-	freqDroopBodyAdptReq   = 1
-	freqDroopBodyAdptRslt  = 2
-	freqDroopBodyDbOfHi    = 12
-	freqDroopBodyDbOfLo    = 13
-	freqDroopBodyKOf       = 16
+	freqDroopBodyEna      = 0
+	freqDroopBodyAdptReq  = 1
+	freqDroopBodyAdptRslt = 2
+	freqDroopBodyDbOfHi   = 12
+	freqDroopBodyDbOfLo   = 13
+	freqDroopBodyKOf      = 16
 
 	// OF-trip safety margin (Hz). HzStart (where curtailment begins) must
 	// sit at least this far below the inverter's OF1 trip — guarantees the

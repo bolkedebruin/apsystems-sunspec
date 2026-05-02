@@ -105,4 +105,3 @@ func (esw *EnterServiceWriter) Apply(ctx context.Context, addrOffset uint16, reg
 	}
 	return nil
 }
-
