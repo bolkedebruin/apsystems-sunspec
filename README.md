@@ -52,6 +52,17 @@ make test     # unit + integration tests
 
 The build is pure Go (`CGO_ENABLED=0`) so the ARMv7 binary is glibc-version-independent and runs on the ECU's old userland.
 
+### Pre-push hooks (optional)
+
+`.pre-commit-config.yaml` ships [prek](https://github.com/j178/prek)-compatible hooks that mirror the CI workflow — gofmt, go vet, go test — so a failed push is caught locally instead of in GitHub Actions:
+
+```sh
+brew install prek          # or `pip install pre-commit` if you prefer
+prek install --hook-type pre-push
+```
+
+Hooks then run automatically on every `git push`. Same config works with stock `pre-commit`.
+
 ## Installing on the ECU
 
 The ECU exposes a local web endpoint that accepts a `tar.bz2` package and runs an embedded `assist` script after extraction. The Makefile builds the right shape of package directly.
