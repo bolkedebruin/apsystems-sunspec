@@ -66,29 +66,33 @@ const (
 func emitControls(bank *Bank, currentPct uint16, ena uint16, conn uint16) {
 	bank.put16(ControlsModelID, ControlsBodyLen)
 
-	bank.put16(0)          // +0  Conn_WinTms       — auto-revert not implemented
-	bank.put16(0)          // +1  Conn_RvrtTms
+	// Timer/window fields (WinTms/RvrtTms/RmpTms) emit notImplU16 because
+	// auto-revert and ramp behavior aren't implemented; per the SunSpec
+	// spec the uint16 "not implemented" sentinel is 0xFFFF, not 0.
+	// APsystems' own port-502 server uses the same convention.
+	bank.put16(notImplU16) // +0  Conn_WinTms
+	bank.put16(notImplU16) // +1  Conn_RvrtTms
 	bank.put16(conn)       // +2  Conn              — 1=CONNECT, 0=DISCONNECT
 	bank.put16(currentPct) // +3  WMaxLimPct        — current cap %
-	bank.put16(0)          // +4  WMaxLimPct_WinTms — auto-revert not implemented
-	bank.put16(0)          // +5  WMaxLimPct_RvrtTms
-	bank.put16(0)          // +6  WMaxLimPct_RmpTms
+	bank.put16(notImplU16) // +4  WMaxLimPct_WinTms
+	bank.put16(notImplU16) // +5  WMaxLimPct_RvrtTms
+	bank.put16(notImplU16) // +6  WMaxLimPct_RmpTms
 	bank.put16(ena)        // +7  WMaxLim_Ena       — 1=ENABLED, 0=DISABLED
 
 	bank.put16(notImplS16) // +8  OutPFSet          — APsystems has no scalar PF setpoint
-	bank.put16(0)          // +9  OutPFSet_WinTms
-	bank.put16(0)          // +10 OutPFSet_RvrtTms
-	bank.put16(0)          // +11 OutPFSet_RmpTms
-	bank.put16(0)          // +12 OutPFSet_Ena      — DISABLED
+	bank.put16(notImplU16) // +9  OutPFSet_WinTms
+	bank.put16(notImplU16) // +10 OutPFSet_RvrtTms
+	bank.put16(notImplU16) // +11 OutPFSet_RmpTms
+	bank.put16(0)          // +12 OutPFSet_Ena      — DISABLED (enum16, 0=DISABLED is a real value)
 
 	bank.put16(notImplS16) // +13 VArWMaxPct        — APsystems is real-power only
 	bank.put16(notImplS16) // +14 VArMaxPct
 	bank.put16(notImplS16) // +15 VArAvalPct
-	bank.put16(0)          // +16 VArPct_WinTms
-	bank.put16(0)          // +17 VArPct_RvrtTms
-	bank.put16(0)          // +18 VArPct_RmpTms
-	bank.put16(0)          // +19 VArPct_Mod        — NONE
-	bank.put16(0)          // +20 VArPct_Ena        — DISABLED
+	bank.put16(notImplU16) // +16 VArPct_WinTms
+	bank.put16(notImplU16) // +17 VArPct_RvrtTms
+	bank.put16(notImplU16) // +18 VArPct_RmpTms
+	bank.put16(0)          // +19 VArPct_Mod        — NONE (enum16)
+	bank.put16(0)          // +20 VArPct_Ena        — DISABLED (enum16)
 
 	bank.put16(scaleFactor(0)) // +21 WMaxLimPct_SF — % is integer
 	bank.put16(scaleFactor(0)) // +22 OutPFSet_SF
