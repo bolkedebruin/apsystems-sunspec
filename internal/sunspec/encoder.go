@@ -275,12 +275,13 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	pct, ena, conn := AggregateControlsState(s)
 	emitControls(&bank, pct, ena, conn)
 
-	// --- Models 707/708/709/710 (DER Trip LV/HV/LF/HF) + 703 (Enter Service) ---
+	// --- Models 707/708/709/710 (DER Trip LV/HV/LF/HF) + 703 (Enter Service) + 711 (Freq Droop) ---
 	// Aggregate bank: use the first inverter's protection params as a
 	// representative profile. Per-inverter banks expose each inverter's
 	// individual values. Empty params produce models with Ena=0 / ActPt=0.
 	emitDERTripModels(&bank, aggregateProtection(s), s.GridVoltageV)
 	emitEnterService(&bank, aggregateProtection(s), s.GridVoltageV)
+	emitFreqDroop(&bank, aggregateProtection(s), freqDroopRsltCompleted)
 
 	// --- Multi-MPPT Model 160 (one module per panel of every online inverter) ---
 	if !opt.DisableMPPT {

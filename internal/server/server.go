@@ -276,6 +276,15 @@ func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, er
 				writer: o.cfg.Writer,
 			}).Apply,
 		},
+		{
+			id:      sunspec.FreqDroopModelID,
+			bodyLen: sunspec.FreqDroopBodyLen,
+			apply: (&FreqDroopWriter{
+				uid:    req.UnitId,
+				snap:   *snapPtr,
+				writer: o.cfg.Writer,
+			}).Apply,
+		},
 	}
 
 	for _, m := range candidates {

@@ -54,6 +54,23 @@ type ProtectionParams struct {
 
 	PFMode float64 // CH — fixed power factor mode (enum, not numeric PF)
 
+	// Frequency-Watt droop curve (over-frequency side). Maps the APsystems
+	// Over_frequency_Watt_* settings exposed through 2-letter codes
+	// observed in the gridProfile JSON and protection_parameters60code:
+	//
+	//	DC = OFDroopStart  (Over_frequency_Watt_Start_set, e.g. 50.2 Hz)
+	//	CC = OFDroopEnd    (Over_frequency_Watt_High_set, e.g. 52.0 Hz — output → 0 here)
+	//	DD = OFDroopSlope  (Over_Frequency_Watt_Slope_set, %P/Hz)
+	//	CV = OFDroopMode   (Over_frequency_Watt_set; enum: 13 = AS/NZS,
+	//	                    14 = other regions, 15 = disabled, others region-specific)
+	//
+	// These map directly to SunSpec Model 711 (DERFreqDroop) Ctl[].DbOf,
+	// the curve endpoint, KOf slope, and Ena.
+	OFDroopStart float64 // DC
+	OFDroopEnd   float64 // CC
+	OFDroopSlope float64 // DD
+	OFDroopMode  float64 // CV
+
 	Has map[string]bool
 }
 
@@ -70,7 +87,8 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 	  BB, BC, BD, BE,
 	  BH, BI, BJ, BK,
 	  BN, BO, BP, BQ,
-	  CH
+	  CH,
+	  CC, CV, DC, DD
 	FROM protection_parameters60code`
 	rows, err := s.live.QueryContext(ctx, q)
 	if err != nil {
@@ -92,6 +110,7 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 			bh, bi, bj, bk                     sql.NullFloat64
 			bn, bo, bp, bq                     sql.NullFloat64
 			ch                                 sql.NullFloat64
+			cc, cv, dc, dd                     sql.NullFloat64
 		)
 		if err := rows.Scan(&uid,
 			&ab, &ac, &ad, &ae, &af,
@@ -101,6 +120,7 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 			&bh, &bi, &bj, &bk,
 			&bn, &bo, &bp, &bq,
 			&ch,
+			&cc, &cv, &dc, &dd,
 		); err != nil {
 			return nil, err
 		}
@@ -137,6 +157,10 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 		set("BP", bp, &p.ReconnFLow)
 		set("BQ", bq, &p.ReconnFHi)
 		set("CH", ch, &p.PFMode)
+		set("CC", cc, &p.OFDroopEnd)
+		set("CV", cv, &p.OFDroopMode)
+		set("DC", dc, &p.OFDroopStart)
+		set("DD", dd, &p.OFDroopSlope)
 		out[uid] = p
 	}
 	return out, rows.Err()

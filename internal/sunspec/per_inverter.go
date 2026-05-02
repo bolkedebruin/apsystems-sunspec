@@ -131,12 +131,13 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	pct, ena, conn := PerInverterControlsState(inv)
 	emitControls(&bank, pct, ena, conn)
 
-	// --- Models 707/708/709/710 + 703 — DER trip + Enter Service ---
+	// --- Models 707/708/709/710 + 703 + 711 — DER trip + Enter Service + Freq Droop ---
 	// Sourced from this inverter's active protection_parameters60code row.
 	// vNom: prefer this inverter's reported AC voltage, fall back to 230 V.
 	vNom := float64(inv.ACVoltageV)
 	emitDERTripModels(&bank, prot, vNom)
 	emitEnterService(&bank, prot, vNom)
+	emitFreqDroop(&bank, prot, freqDroopRsltCompleted)
 
 	// --- Multi-MPPT (160) — only this inverter's panels ---
 	if !opt.DisableMPPT {
