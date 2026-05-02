@@ -4,10 +4,15 @@ import "github.com/bolke/ecu-sunspec/internal/source"
 
 // emitBasicSettings writes SunSpec Model 121 (Basic Settings).
 //
-// Model 121 declares the inverter's user-set caps and grid limits. We surface
-// the curtailment cap currently configured (sum of per-panel `limitedpower`
-// values) and otherwise leave fields as "not implemented" sentinels — APsystems
-// doesn't expose programmable VAr / PF settings, only watts.
+// Model 121 declares the inverter's user-set caps and grid limits.
+// SunSpec spec marks both WMax and VRef as access=RW: configurable
+// setpoints, not live measurements. Live measurements live in Models
+// 101/103/111/113 (PhVphA, etc.).
+//
+// VRef is derived from the ECU's active grid-protection thresholds (the
+// 10-min average over-voltage limit at 110% of nominal), not hardcoded —
+// it tracks the regulatory grid profile the ECU has actually pushed to
+// the inverters. notImplU16 when the ECU hasn't populated those.
 //
 // Length is fixed at 30 registers per the SunSpec spec.
 func emitBasicSettings(bank *Bank, s source.Snapshot) {
@@ -20,14 +25,11 @@ func emitBasicSettings(bank *Bank, s source.Snapshot) {
 		bank.put16(uint16(limitedW))
 	}
 
-	// VRef (PCC nominal voltage) — uses grid voltage from snapshot if present
-	vref := uint16(0)
-	if s.GridVoltageV > 0 && s.GridVoltageV < 65535 {
-		vref = uint16(s.GridVoltageV + 0.5)
+	if v := s.NominalVRefV(); v > 0 && v < 65535 {
+		bank.put16(uint16(v))
 	} else {
-		vref = notImplU16
+		bank.put16(notImplU16)
 	}
-	bank.put16(vref)
 
 	bank.put16(notImplS16) // VRefOfs — voltage offset (int16)
 

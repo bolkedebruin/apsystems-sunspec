@@ -73,6 +73,29 @@ func (s Snapshot) TotalPanelCount() int {
 	return n
 }
 
+// NominalVRefV returns the nominal AC voltage at the Point of Common
+// Coupling, derived from the active grid-protection thresholds the ECU
+// has pushed to the inverters. SunSpec Model 121 VRef wants this static
+// commissioned value, not a live measurement.
+//
+// The 10-minute-average over-voltage threshold (AB,
+// `min10_Over_average_voltage`) sits at 110% of nominal under
+// EN 50549-1 / VDE-AR-N 4105 / similar. We back out nominal as
+// AB / 1.10, rounded to the nearest 1 V, taking the first inverter's
+// values (the fleet is on a single grid profile, so all entries
+// agree).
+//
+// Returns 0 when no inverter has populated AB — the caller should
+// emit the SunSpec uint16 not-implemented sentinel.
+func (s Snapshot) NominalVRefV() int {
+	for _, p := range s.Protection {
+		if p.Has != nil && p.Has["AB"] && p.AvgOV > 0 {
+			return int(p.AvgOV/1.10 + 0.5)
+		}
+	}
+	return 0
+}
+
 // TotalLimitedW returns the user-configured fleet maximum active power
 // — what SunSpec Model 121 calls WMax.
 //
