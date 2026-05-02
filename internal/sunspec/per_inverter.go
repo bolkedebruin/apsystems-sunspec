@@ -80,7 +80,20 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	bank.put16(hz)
 	bank.put16(scaleFactor(-2))
 
-	// VA / VAr / PF — not measured
+	// VA / VAr / PF — emitted as "not implemented" by design.
+	//
+	// APsystems' own SunSpec server (port 502 on the ECU) reports values
+	// here for DS3-family inverters by computing VA = A_measured × V,
+	// PF = W/VA, VAr = √(VA² − W²). For QS1 it derives A from W/V, so
+	// VA collapses to W and Q is structurally zero — VAr=0, PF=1.0
+	// regardless of actual conditions.
+	//
+	// We don't capture the inverters' independently measured A in our
+	// snapshot today (parameters_app.conf surfaces W and V but not the
+	// per-channel measured A on DS3), so geometric Q can't be honestly
+	// computed without proxying APsystems' :502. We choose to emit
+	// not-impl rather than fake VAr=0/PF=1 stand-ins for inverters that
+	// don't measure Q.
 	bank.put16(notImplS16)
 	bank.put16(scaleFactor(0))
 	bank.put16(notImplS16)
@@ -126,6 +139,12 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	bank.putAcc32(uint64(inv.EventBits[1]))                         // EvtVnd2 — raw 32-63
 	bank.putAcc32(uint64(inv.EventBits[2]))                         // EvtVnd3 — raw 64-95
 	bank.putAcc32(uint64(notImplU32))                               // EvtVnd4 — unused
+
+	// --- Inverter Float Model 111 — same field set as 101, float32 encoding ---
+	emitInverterFloatPerInverter(&bank, inv)
+
+	// --- Model 114 — DC Data float (per-panel) ---
+	emitDCDataFloatPerInverter(&bank, inv)
 
 	// --- Model 123 — Inverter Controls (read/write) for THIS inverter ---
 	pct, ena, conn := PerInverterControlsState(inv)

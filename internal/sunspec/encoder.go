@@ -4,6 +4,8 @@
 //
 //	Common Model        (ID  1, length 66)
 //	Inverter Model      (101/102/103 — int+SF, length 50; phase-mode picks one)
+//	Inverter Float      (111/112/113 — float32, length 60; matching phase model)
+//	DC Data Float       (ID 114, length 48 — 8-channel DCV/DCA/DCW arrays)
 //	Multi-MPPT Model    (ID 160, length 8 + 20·N, optional)
 //	End marker          (0xFFFF, length 0)
 //
@@ -274,6 +276,12 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	bank.putAcc32(uint64(bits[1]))                         // EvtVnd2 — raw 32-63
 	bank.putAcc32(uint64(bits[2]))                         // EvtVnd3 — raw 64-95
 	bank.putAcc32(uint64(notImplU32))                      // EvtVnd4 — unused
+
+	// --- Inverter Float Model 111/112/113 — same field set as 101/103, float32 encoding ---
+	emitInverterFloat(&bank, s, opt.Phase)
+
+	// --- Model 114 — DC Data float (per-channel) ---
+	emitDCDataFloat(&bank, s)
 
 	// --- Model 120 — Nameplate Ratings ---
 	emitNameplate(&bank, s)
