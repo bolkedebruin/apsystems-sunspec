@@ -50,6 +50,14 @@ const (
 	DERTripHVModelID uint16 = 708
 	DERTripLFModelID uint16 = 709
 	DERTripHFModelID uint16 = 710
+
+	// AdptCrvRslt enum values per the SunSpec model definitions for 707-710.
+	// We publish COMPLETED for the static snapshot — there's no async curve
+	// write in flight; we're just exposing the inverter's currently-loaded
+	// trip points. IN_PROGRESS would be misread by clients as "writing now".
+	derTripRsltInProgress uint16 = 0
+	derTripRsltCompleted  uint16 = 1
+	derTripRsltFailed     uint16 = 2
 )
 
 // trip3Pt is one tier (MustTrip / MayTrip / MomCess) of a DER-trip curve.
@@ -74,8 +82,8 @@ func emitDERTripV(bank *Bank, modelID uint16, vNom float64, must trip3Pt) {
 		ena = 1
 	}
 	bank.put16(ena)
-	bank.put16(0) // AdptCrvReq
-	bank.put16(0) // AdptCrvRslt
+	bank.put16(0)                    // AdptCrvReq
+	bank.put16(derTripRsltCompleted) // AdptCrvRslt
 	bank.put16(derTripNPt)
 	bank.put16(derTripNCrv)
 	bank.put16(scaleFactor(derTripVSF))
@@ -94,8 +102,8 @@ func emitDERTripHz(bank *Bank, modelID uint16, must trip3Pt) {
 		ena = 1
 	}
 	bank.put16(ena)
-	bank.put16(0)
-	bank.put16(0)
+	bank.put16(0)                    // AdptCrvReq
+	bank.put16(derTripRsltCompleted) // AdptCrvRslt
 	bank.put16(derTripNPt)
 	bank.put16(derTripNCrv)
 	bank.put16(scaleFactor(derTripHzSF))
