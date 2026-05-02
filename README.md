@@ -2,7 +2,7 @@
 
 A SunSpec / Modbus TCP adapter for APsystems ECU gateways (ECU-R, ECU-R-Pro, ECU-C, etc.). Exposes the data the ECU already collects from your microinverters as a standards-compliant SunSpec register bank, so Victron GX, Home Assistant, Grafana, Node-RED, and any other SunSpec consumer can read it natively.
 
-The adapter reads the ECU's own SQLite databases and `/tmp/parameters_app.conf`. No effect on `main.exe`'s radio cycle and no cloud round-trip. Runs on the ECU itself or as a sidecar.
+The adapter reads the ECU's own SQLite databases and `/tmp/parameters_app.conf`. No effect on the ECU's radio cycle and no cloud round-trip. Runs on the ECU itself or as a sidecar.
 
 ## Compatibility
 
@@ -17,7 +17,7 @@ The adapter requires a Linux userspace on the ECU (BusyBox + writable `/home/app
 | ECU-3 / ECU-3Z | various | Linux | yes — untested | unknown |
 
 Notes:
-- "Tested" means I run this build daily on the listed firmware. Other Linux-based ECUs share the same `main.exe` lineage (Yuneng platform, sqlite-backed `/home/database.db`, BusyBox `/etc/init.d/S99-*` script convention) so the adapter should work without code changes — open an issue if you find otherwise.
+- "Tested" means I run this build daily on the listed firmware. Other Linux-based ECUs share the same userspace lineage (Yuneng platform, sqlite-backed `/home/database.db`, BusyBox `/etc/init.d/S99-*` script convention) so the adapter should work without code changes — open an issue if you find otherwise.
 - The Cortex-M3 / RT-Thread ECUs (2160 / 2163) ship a single firmware blob that boots from MCU flash at `0x08000000` — there's nowhere to install a Go binary. APsystems' own port-502 server on those models implements only the minimal SunSpec PICS (4 models); the richer 700-series DER models, Multi-MPPT, nameplate, and float variants this adapter exposes simply aren't reachable on those ECUs.
 - A sidecar deployment that proxies a 2160's port 502 is possible but limited — a sidecar machine can only republish what :502 already serves; it can't read the per-inverter tables that aren't exposed over Modbus.
 
@@ -275,7 +275,7 @@ The per-panel cap is clamped to the same `[20, 500]` W range the ECU's own PHP `
 
 ### Latency
 
-Writes go to the ECU's SQLite tables. `main.exe` polls those tables once per ZigBee cycle (default 300 s, fast-poll mode 30 s) and dispatches the queued commands over the radio. **Expect 30–300 s** between a Modbus write and the actual inverter responding.
+Writes go to the ECU's SQLite tables. The ECU's dispatch loop polls those tables once per ZigBee cycle (default 300 s, fast-poll mode 30 s) and pushes the queued commands over the radio. **Expect 30–300 s** between a Modbus write and the actual inverter responding.
 
 For real-time control (e.g. fast zero-feed-in), use AC-coupled frequency-shift on a Victron Multi instead — that's sub-second because each microinverter's local P-f curve responds without any radio round-trip.
 
@@ -301,8 +301,8 @@ m.WMaxLimPct.value = 50
 m.write()
 "
 
-# Confirm the SQL row updated; flag=1 means main.exe will pick it up
-# on the next poll.
+# Confirm the SQL row updated; flag=1 means the ECU dispatcher will
+# pick it up on the next poll.
 ssh ecu sqlite3 /home/database.db \
     "'SELECT id, limitedpower, flag FROM power'"
 ```
