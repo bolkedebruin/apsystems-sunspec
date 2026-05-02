@@ -137,7 +137,10 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	vNom := float64(inv.ACVoltageV)
 	emitDERTripModels(&bank, prot, vNom)
 	emitEnterService(&bank, prot, vNom)
-	emitFreqDroop(&bank, prot, freqDroopRsltCompleted)
+	{
+		rslt, req := lookupWriteRslt(opt, uint8(unitID), FreqDroopModelID)
+		emitFreqDroop(&bank, prot, rslt, req)
+	}
 
 	// --- Multi-MPPT (160) — only this inverter's panels ---
 	if !opt.DisableMPPT {

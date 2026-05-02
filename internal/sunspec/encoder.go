@@ -145,6 +145,16 @@ type Options struct {
 	SerialFallback string    // used only if SerialOverride is empty AND snapshot.ECUID is empty
 	Phase          PhaseMode // defaults to PhaseAuto (detected from snapshot)
 	DisableMPPT    bool      // skip Multi-MPPT Model 160; default emits it when inverters are present
+
+	// WriteRslt returns the async write status (rslt enum, request counter)
+	// for SunSpec models that publish AdptCtlRslt / AdptCrvRslt fields
+	// (Model 711 today). The unit ID is the Modbus address we're emitting
+	// for (1 = aggregate, 2..N+1 = per-inverter); modelID is the SunSpec
+	// model we're emitting. Returning (1, 0) for unknowns is the safe
+	// default — it maps to COMPLETED, "no write in flight".
+	//
+	// nil → all writable models emit COMPLETED with reqCounter=0.
+	WriteRslt func(uid uint8, modelID uint16) (rslt uint16, reqCounter uint16)
 }
 
 // Encode produces a Bank from a Snapshot.
@@ -281,7 +291,10 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	// individual values. Empty params produce models with Ena=0 / ActPt=0.
 	emitDERTripModels(&bank, aggregateProtection(s), s.GridVoltageV)
 	emitEnterService(&bank, aggregateProtection(s), s.GridVoltageV)
-	emitFreqDroop(&bank, aggregateProtection(s), freqDroopRsltCompleted)
+	{
+		rslt, req := lookupWriteRslt(opt, 1, FreqDroopModelID)
+		emitFreqDroop(&bank, aggregateProtection(s), rslt, req)
+	}
 
 	// --- Multi-MPPT Model 160 (one module per panel of every online inverter) ---
 	if !opt.DisableMPPT {

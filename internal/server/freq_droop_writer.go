@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/bolke/ecu-sunspec/internal/source"
+	"github.com/bolke/ecu-sunspec/internal/sunspec"
 )
 
 // FreqDroopWriter handles Modbus writes to SunSpec Model 711 (DERFreqDroop).
@@ -51,9 +52,10 @@ import (
 // CC from this writer — Model 710 stays the source of truth for trip
 // thresholds.
 type FreqDroopWriter struct {
-	uid    uint8
-	snap   source.Snapshot
-	writer *source.Writer
+	uid     uint8
+	snap    source.Snapshot
+	writer  *source.Writer
+	tracker *WriteTracker
 }
 
 const (
@@ -165,6 +167,12 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 		}
 	}
 
+	// Track expected post-write state (keyed by 2-letter codes for
+	// reconciliation against snap.Protection later) before we actually
+	// translate the writes — this way Track sees the full set even if a
+	// later SetProtectionParam fails partway through.
+	expected := map[string]float64{}
+
 	if wantsEna {
 		ena := readField(addrOffset, regs, freqDroopBodyEna)
 		// Map SunSpec Ena (0/1) to APsystems' enum (13 = AS/NZS, 14 = other, 15 = disabled).
@@ -174,9 +182,25 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 		} else if int(prot.OFDroopMode) == freqDroopModeASNZS {
 			modeVal = freqDroopModeASNZS // preserve current AS/NZS mode
 		}
+		expected["CV"] = float64(modeVal)
 		if err := fdw.writer.SetProtectionParam(ctx, uid, "Over_frequency_Watt_set", float64(modeVal)); err != nil {
 			return fmt.Errorf("set Over_frequency_Watt_set: %w", err)
 		}
+	}
+
+	// Re-derive the expected DC / DD values that were already written
+	// above (we want them in `expected` for tracking, not just dispatched).
+	if wantsDbOf {
+		hi := readField(addrOffset, regs, freqDroopBodyDbOfHi)
+		lo := readField(addrOffset, regs, freqDroopBodyDbOfLo)
+		expected["DC"] = 50.0 + float64(uint32(hi)<<16|uint32(lo))/100.0
+	}
+	if wantsKOf {
+		expected["DD"] = float64(readField(addrOffset, regs, freqDroopBodyKOf)) / 10.0
+	}
+
+	if fdw.tracker != nil && len(expected) > 0 {
+		fdw.tracker.Track(fdw.uid, sunspec.FreqDroopModelID, expected)
 	}
 	return nil
 }

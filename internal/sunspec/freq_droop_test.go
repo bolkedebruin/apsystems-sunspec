@@ -18,7 +18,7 @@ func TestEmitFreqDroop_LengthAndContent(t *testing.T) {
 		},
 	}
 	bank := Bank{Regs: make([]uint16, 0, 32), Base: BaseRegister}
-	emitFreqDroop(&bank, p, freqDroopRsltCompleted)
+	emitFreqDroop(&bank, p, freqDroopRsltCompleted, 0)
 
 	// Total = 24 regs (ID + L + 22-reg body).
 	if got := len(bank.Regs); got != 24 {
@@ -68,7 +68,7 @@ func TestEmitFreqDroop_Disabled(t *testing.T) {
 		Has:         map[string]bool{"CV": true},
 	}
 	bank := Bank{Regs: make([]uint16, 0, 32), Base: BaseRegister}
-	emitFreqDroop(&bank, p, freqDroopRsltCompleted)
+	emitFreqDroop(&bank, p, freqDroopRsltCompleted, 0)
 
 	if bank.Regs[2] != 0 {
 		t.Errorf("Ena=%d want 0 (mode=15 = disabled)", bank.Regs[2])
@@ -77,7 +77,7 @@ func TestEmitFreqDroop_Disabled(t *testing.T) {
 
 func TestEmitFreqDroop_EmptyParams(t *testing.T) {
 	bank := Bank{Regs: make([]uint16, 0, 32), Base: BaseRegister}
-	emitFreqDroop(&bank, source.ProtectionParams{Has: map[string]bool{}}, freqDroopRsltCompleted)
+	emitFreqDroop(&bank, source.ProtectionParams{Has: map[string]bool{}}, freqDroopRsltCompleted, 0)
 	if got := len(bank.Regs); got != 24 {
 		t.Fatalf("regs=%d want 24 even with empty params", got)
 	}

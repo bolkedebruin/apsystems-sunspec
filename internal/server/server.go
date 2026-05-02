@@ -62,6 +62,11 @@ type Server struct {
 	mu  sync.Mutex
 	srv *modbus.ModbusServer
 
+	// tracker holds per-(uid, modelID) state for SunSpec models with an
+	// AdptCtlRslt / AdptCrvRslt async-result field (Model 711 today).
+	// Reconciled after each snapshot refresh.
+	tracker *WriteTracker
+
 	logger *log.Logger
 }
 
@@ -86,7 +91,12 @@ func New(p Provider, cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
 	}
-	return &Server{cfg: cfg, provider: p, logger: cfg.Logger}
+	return &Server{
+		cfg:      cfg,
+		provider: p,
+		logger:   cfg.Logger,
+		tracker:  NewWriteTracker(),
+	}
 }
 
 // Start launches the refresh loop, primes the bank with one synchronous
@@ -134,7 +144,8 @@ func (s *Server) Stop() error {
 // SetSnapshot is exposed for tests so they can drive the server with a fixed
 // snapshot without wiring a Provider.
 func (s *Server) SetSnapshot(snap source.Snapshot) {
-	s.banks.Store(buildBanks(snap, s.cfg.Encoder))
+	s.tracker.Reconcile(snap)
+	s.banks.Store(buildBanks(snap, s.cfg.Encoder, s.tracker))
 	s.snap.Store(&snap)
 }
 
@@ -146,15 +157,26 @@ func (s *Server) refresh(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	s.banks.Store(buildBanks(snap, s.cfg.Encoder))
+	// Reconcile pending write requests against the new snapshot before
+	// publishing — so the next bank build emits the correct AdptCtlRslt.
+	s.tracker.Reconcile(snap)
+	s.tracker.PruneSettled(s.cfg.RefreshInterval)
+	s.banks.Store(buildBanks(snap, s.cfg.Encoder, s.tracker))
 	s.snap.Store(&snap)
 	return nil
 }
 
 // buildBanks encodes the aggregate bank at uid 1 and a per-microinverter bank
-// at uid 2..N+1.
-func buildBanks(snap source.Snapshot, opt sunspec.Options) *map[uint8]*sunspec.Bank {
+// at uid 2..N+1. The tracker (may be nil for tests) supplies AdptCtlRslt /
+// AdptCrvRslt values per (uid, modelID) for SunSpec models that publish
+// async write outcomes. With a nil tracker, all rslts default to COMPLETED.
+func buildBanks(snap source.Snapshot, opt sunspec.Options, tracker *WriteTracker) *map[uint8]*sunspec.Bank {
 	banks := make(map[uint8]*sunspec.Bank, 1+len(snap.Inverters))
+	if tracker != nil {
+		opt.WriteRslt = func(uid uint8, modelID uint16) (uint16, uint16) {
+			return tracker.Get(uid, modelID)
+		}
+	}
 	agg := sunspec.Encode(snap, opt)
 	banks[1] = &agg
 	for i, inv := range snap.Inverters {
@@ -280,9 +302,10 @@ func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, er
 			id:      sunspec.FreqDroopModelID,
 			bodyLen: sunspec.FreqDroopBodyLen,
 			apply: (&FreqDroopWriter{
-				uid:    req.UnitId,
-				snap:   *snapPtr,
-				writer: o.cfg.Writer,
+				uid:     req.UnitId,
+				snap:    *snapPtr,
+				writer:  o.cfg.Writer,
+				tracker: o.tracker,
 			}).Apply,
 		},
 	}

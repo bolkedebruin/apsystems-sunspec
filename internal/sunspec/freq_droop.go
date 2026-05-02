@@ -66,9 +66,10 @@ const (
 // is still discoverable so SunSpec scanners can find it; values populate
 // once main.exe pushes a profile that exercises the OF-droop codes.
 //
-// rslt is the current AdptCtlRslt value to publish — held in the server
-// alongside the snapshot since it tracks async write outcomes per (uid, model).
-func emitFreqDroop(bank *Bank, p source.ProtectionParams, rslt uint16) {
+// rslt and reqCounter are the AdptCtlRslt / AdptCtlReq values to publish —
+// supplied by the server's WriteTracker so they reflect the actual
+// IN_PROGRESS / COMPLETED / FAILED state of the most recent write.
+func emitFreqDroop(bank *Bank, p source.ProtectionParams, rslt uint16, reqCounter uint16) {
 	bank.put16(FreqDroopModelID, freqDroopBodyLen)
 
 	// Ena: 1 if APsystems' droop mode is in an active enum value (13 or 14),
@@ -80,12 +81,12 @@ func emitFreqDroop(bank *Bank, p source.ProtectionParams, rslt uint16) {
 	}
 	bank.put16(ena)
 
-	// AdptCtlReq: a request counter the client increments to request a new
-	// control set. We don't process it server-side — the value the client
-	// last wrote is held in rslt's parent state. Emit 0 here.
-	bank.put16(0)
+	// AdptCtlReq: echoes the request counter the server has tracked for
+	// this (uid, modelID), so clients can correlate "did my latest write
+	// land yet" with their own posted counter.
+	bank.put16(reqCounter)
 
-	// AdptCtlRslt: async result of the last write request.
+	// AdptCtlRslt: server-published async result of the last write request.
 	bank.put16(rslt)
 
 	// NCtl
@@ -149,4 +150,14 @@ func HzStopFromDroopEnd(p source.ProtectionParams) (float64, bool) {
 		return 0, false
 	}
 	return p.OFDroopEnd, true
+}
+
+// lookupWriteRslt returns (rslt, reqCounter) for (uid, modelID), or
+// (COMPLETED, 0) when no tracker is configured. Centralizes the nil-check
+// on Options.WriteRslt so emit functions stay clean.
+func lookupWriteRslt(opt Options, uid uint8, modelID uint16) (uint16, uint16) {
+	if opt.WriteRslt == nil {
+		return freqDroopRsltCompleted, 0
+	}
+	return opt.WriteRslt(uid, modelID)
 }
