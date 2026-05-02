@@ -4,6 +4,23 @@ A SunSpec / Modbus TCP adapter for APsystems ECU gateways (ECU-R, ECU-R-Pro, ECU
 
 The adapter reads the ECU's own SQLite databases and `/tmp/parameters_app.conf`. No effect on `main.exe`'s radio cycle and no cloud round-trip. Runs on the ECU itself or as a sidecar.
 
+## Compatibility
+
+The adapter requires a Linux userspace on the ECU (BusyBox + writable `/home/applications/`) and reads tables from APsystems' `/home/database.db`. ECU models that run a bare-metal RTOS instead of Linux can't host the adapter — point your SunSpec client at APsystems' built-in port 502 in that case.
+
+| ECU model | Serial prefix | Platform | This adapter | APsystems :502 (per their Rev 3.3 spec) |
+|---|---|---|---|---|
+| ECU-R-M3 | `2160xxxxxxxx` | Cortex-M3 + RT-Thread / lwIP 1.4.1 (RTOS, single-image firmware) | no — no userspace | yes: Common, 101, 111, 123 (firmware ≥ 1.3.7) |
+| **ECU-R-Pro** | `2162xxxxxxxx` | **Linux ARMv7** (BusyBox) | **yes — tested on fw 2.1.29D** | yes, same minimal PICS (firmware ≥ 2.0.2) |
+| ECU-B | `2163xxxxxxxx` | (RTOS, same family as ECU-R-M3) | no — no userspace | no — APsystems explicitly disables Modbus on this model |
+| ECU-C | `215xxxxxxxxx` | Linux | yes — untested but expected to work, same Yuneng userspace | yes: Common, 101, 111, 123 (firmware ≥ C1.1.3) |
+| ECU-3 / ECU-3Z | various | Linux | yes — untested | unknown |
+
+Notes:
+- "Tested" means I run this build daily on the listed firmware. Other Linux-based ECUs share the same `main.exe` lineage (Yuneng platform, sqlite-backed `/home/database.db`, BusyBox `/etc/init.d/S99-*` script convention) so the adapter should work without code changes — open an issue if you find otherwise.
+- The Cortex-M3 / RT-Thread ECUs (2160 / 2163) ship a single firmware blob that boots from MCU flash at `0x08000000` — there's nowhere to install a Go binary. APsystems' own port-502 server on those models implements only the minimal SunSpec PICS (4 models); the richer 700-series DER models, Multi-MPPT, nameplate, and float variants this adapter exposes simply aren't reachable on those ECUs.
+- A sidecar deployment that proxies a 2160's port 502 is possible but limited — a sidecar machine can only republish what :502 already serves; it can't read the per-inverter tables that aren't exposed over Modbus.
+
 ## What it exposes
 
 | Modbus unit ID | Bank | Why |
