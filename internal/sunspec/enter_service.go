@@ -29,7 +29,7 @@ import (
 
 const (
 	EnterServiceModelID uint16 = 703
-	enterServiceBodyLen uint16 = 17
+	EnterServiceBodyLen uint16 = 17
 	enterServiceVSF     int8   = -2
 	enterServiceHzSF    int8   = -2
 )
@@ -43,7 +43,7 @@ func emitEnterService(bank *Bank, p source.ProtectionParams, vNom float64) {
 	if vNom <= 0 {
 		vNom = derTripVDefault
 	}
-	bank.put16(EnterServiceModelID, enterServiceBodyLen)
+	bank.put16(EnterServiceModelID, EnterServiceBodyLen)
 
 	// ES — service-enable enum: 1 = ENABLED if AG (reconnect time) is configured.
 	es := uint16(0)

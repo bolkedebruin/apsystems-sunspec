@@ -131,8 +131,8 @@ func TestEmitEnterService_Length(t *testing.T) {
 	if bank.Regs[0] != 703 {
 		t.Errorf("ID=%d want 703", bank.Regs[0])
 	}
-	if bank.Regs[1] != enterServiceBodyLen {
-		t.Errorf("L=%d want %d", bank.Regs[1], enterServiceBodyLen)
+	if bank.Regs[1] != EnterServiceBodyLen {
+		t.Errorf("L=%d want %d", bank.Regs[1], EnterServiceBodyLen)
 	}
 	// ES enabled
 	if bank.Regs[2] != 1 {

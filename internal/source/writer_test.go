@@ -3,6 +3,7 @@ package source
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,7 @@ func makeWriterFixture(t *testing.T) string {
 	defer db.Close()
 	mustExec(t, db, `CREATE TABLE power(item INTEGER, id VARCHAR(15), limitedpower INTEGER, limitedresult INTEGER, stationarypower INTEGER, stationaryresult INTEGER, flag INTEGER)`)
 	mustExec(t, db, `CREATE TABLE turn_on_off(id VARCHAR(256), set_flag INTEGER, primary key(id))`)
+	mustExec(t, db, `CREATE TABLE set_protection_parameters_inverter(id VARCHAR(256), parameter_name VARCHAR(256), parameter_value REAL, set_flag INTEGER, primary key(id, parameter_name))`)
 	mustExec(t, db, `INSERT INTO power VALUES(0,'INV-A',258,0,258,'-',0)`)
 	mustExec(t, db, `INSERT INTO power VALUES(1,'INV-B',258,0,258,'-',0)`)
 	return dir
@@ -93,6 +95,68 @@ func TestWriter_SetTurnOnOff(t *testing.T) {
 	db.QueryRow(`SELECT set_flag FROM turn_on_off WHERE id='INV-A'`).Scan(&state)
 	if state != 1 {
 		t.Errorf("expected last write (on) to leave state=1, got %d", state)
+	}
+}
+
+func TestWriter_SetProtectionParam(t *testing.T) {
+	dir := makeWriterFixture(t)
+	w, _ := OpenWriter(dir)
+	defer w.Close()
+
+	// Two writes for same (uid, name) — second must replace the first.
+	if err := w.SetProtectionParam(context.Background(), "INV-A", "grid_recovery_time", 30.0); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	if err := w.SetProtectionParam(context.Background(), "INV-A", "grid_recovery_time", 60.0); err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	// Different (uid, name) creates a separate row.
+	if err := w.SetProtectionParam(context.Background(), "INV-B", "grid_recovery_time", 60.0); err != nil {
+		t.Fatalf("INV-B write: %v", err)
+	}
+
+	db, _ := sql.Open("sqlite", "file:"+filepath.Join(dir, "database.db")+"?mode=ro")
+	defer db.Close()
+	rows, err := db.Query(`SELECT id, parameter_name, parameter_value, set_flag FROM set_protection_parameters_inverter ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var seen []string
+	for rows.Next() {
+		var id, name string
+		var v float64
+		var flag int
+		if err := rows.Scan(&id, &name, &v, &flag); err != nil {
+			t.Fatal(err)
+		}
+		if flag != 1 {
+			t.Errorf("set_flag=%d want 1 (queued)", flag)
+		}
+		seen = append(seen, id+":"+name+":"+fmt.Sprintf("%.0f", v))
+	}
+	want := []string{"INV-A:grid_recovery_time:60", "INV-B:grid_recovery_time:60"}
+	if len(seen) != len(want) {
+		t.Errorf("got %v rows, want %v", seen, want)
+	}
+	for i, w := range want {
+		if i >= len(seen) || seen[i] != w {
+			t.Errorf("row %d = %q, want %q", i, seen[i], w)
+		}
+	}
+}
+
+func TestWriter_SetProtectionParam_RejectsEmpty(t *testing.T) {
+	dir := makeWriterFixture(t)
+	w, _ := OpenWriter(dir)
+	defer w.Close()
+	ctx := context.Background()
+
+	if err := w.SetProtectionParam(ctx, "", "grid_recovery_time", 60.0); err == nil {
+		t.Error("empty UID: expected error, got nil")
+	}
+	if err := w.SetProtectionParam(ctx, "INV-A", "", 60.0); err == nil {
+		t.Error("empty name: expected error, got nil")
 	}
 }
 

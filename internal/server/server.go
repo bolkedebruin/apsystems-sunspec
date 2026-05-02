@@ -245,39 +245,63 @@ func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, er
 		return nil, modbus.ErrIllegalDataAddress
 	}
 
-	// Locate Model 123 in this bank and verify the write falls inside it.
-	ctlBase, ok := findModelInBank(bank, sunspec.ControlsModelID)
-	if !ok {
-		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d → no Model 123 in bank",
-			req.ClientAddr, req.UnitId, req.Addr)
-		return nil, modbus.ErrIllegalDataAddress
-	}
-	bodyStart := ctlBase + 2
-	bodyEnd := bodyStart + sunspec.ControlsBodyLen
-	if req.Addr < bodyStart || req.Addr+req.Quantity > bodyEnd {
-		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d qty=%d → outside Model 123 [%d..%d)",
-			req.ClientAddr, req.UnitId, req.Addr, req.Quantity, bodyStart, bodyEnd)
-		return nil, modbus.ErrIllegalDataAddress
-	}
-
 	snapPtr := o.snap.Load()
 	if snapPtr == nil {
 		return nil, modbus.ErrServerDeviceFailure
 	}
-	cw := &ControlsWriter{
-		uid:    req.UnitId,
-		snap:   *snapPtr,
-		writer: o.cfg.Writer,
+
+	// Try each writable model in turn. A write must fall fully inside the
+	// body of exactly one of these models.
+	type modelWriter struct {
+		id      uint16
+		bodyLen uint16
+		apply   func(ctx context.Context, addrOffset uint16, regs []uint16) error
 	}
-	addrOffset := req.Addr - bodyStart
-	if err := cw.Apply(context.Background(), addrOffset, req.Args); err != nil {
-		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d apply: %v",
-			req.ClientAddr, req.UnitId, req.Addr, err)
-		return nil, modbus.ErrServerDeviceFailure
+	candidates := []modelWriter{
+		{
+			id:      sunspec.ControlsModelID,
+			bodyLen: sunspec.ControlsBodyLen,
+			apply: (&ControlsWriter{
+				uid:    req.UnitId,
+				snap:   *snapPtr,
+				writer: o.cfg.Writer,
+			}).Apply,
+		},
+		{
+			id:      sunspec.EnterServiceModelID,
+			bodyLen: sunspec.EnterServiceBodyLen,
+			apply: (&EnterServiceWriter{
+				uid:    req.UnitId,
+				snap:   *snapPtr,
+				writer: o.cfg.Writer,
+			}).Apply,
+		},
 	}
-	o.logger.Printf("FC06/16 write from %s uid=%d addr=%d qty=%d → applied",
+
+	for _, m := range candidates {
+		base, ok := findModelInBank(bank, m.id)
+		if !ok {
+			continue
+		}
+		bodyStart := base + 2
+		bodyEnd := bodyStart + m.bodyLen
+		if req.Addr < bodyStart || req.Addr+req.Quantity > bodyEnd {
+			continue
+		}
+		addrOffset := req.Addr - bodyStart
+		if err := m.apply(context.Background(), addrOffset, req.Args); err != nil {
+			o.logger.Printf("FC06/16 write from %s uid=%d model=%d addr=%d apply: %v",
+				req.ClientAddr, req.UnitId, m.id, req.Addr, err)
+			return nil, modbus.ErrIllegalDataValue
+		}
+		o.logger.Printf("FC06/16 write from %s uid=%d model=%d addr=%d qty=%d → applied",
+			req.ClientAddr, req.UnitId, m.id, req.Addr, req.Quantity)
+		return nil, nil
+	}
+
+	o.logger.Printf("FC06/16 write from %s uid=%d addr=%d qty=%d → no writable model covers this range",
 		req.ClientAddr, req.UnitId, req.Addr, req.Quantity)
-	return nil, nil
+	return nil, modbus.ErrIllegalDataAddress
 }
 
 // findModelInBank walks the bank looking for the given model ID. Returns the

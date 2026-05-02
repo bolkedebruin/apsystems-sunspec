@@ -103,3 +103,46 @@ func (w *Writer) SetTurnOnOff(ctx context.Context, invUID string, on bool) error
 func (w *Writer) RestoreFullPower(ctx context.Context, invUID string) error {
 	return w.SetMaxPower(ctx, invUID, MaxPanelLimitW)
 }
+
+// SetProtectionParam queues a single grid-protection parameter write into
+// `set_protection_parameters_inverter`. main.exe picks it up on the next
+// ZigBee dispatch cycle and translates it into the radio command that
+// programs the inverter. The parameter_name MUST be the long descriptive
+// name accepted by main.exe (e.g. "grid_recovery_time", not "AG") — the
+// firmware's strcmp ladder only matches the long form. See main.exe symbol
+// table dump for the full set; common ones include:
+//
+//	grid_recovery_time            (AG, reconnect time, range_min 10s)
+//	under_voltage_slow            (AC, UV stage 3 trip)
+//	under_voltage_fast            (AQ, UV stage 2 fast trip)
+//	over_voltage_slow             (AD, OV stage 2 slow trip)
+//	Over_Voltage_stage3           (AY, OV stage 3 trip)
+//	under_frequency_fast          (AJ, UF fast trip)
+//	over_frequency_fast           (AK, OF fast trip)
+//	Under_Voltage{1,2,3}_clearance_time
+//	Over_Voltage{1,2,3}_clearance_time
+//	Under_Frequency{1,2}_clearance_time
+//	Over_Frequency{1,2}_clearance_time
+//	Reconnection_under_voltage / over_voltage / under_frequency / over_frequency
+//
+// Caller is responsible for value-range validation — this function does NOT
+// range-check (the menu values vary per regulatory profile, and validating
+// against a particular spec's bounds requires reader access). The inverter
+// firmware enforces its own range_max as a safety net (silent-rejects values
+// out of range).
+func (w *Writer) SetProtectionParam(ctx context.Context, invUID, paramName string, value float64) error {
+	if w == nil {
+		return errors.New("writer not initialized")
+	}
+	if invUID == "" {
+		return errors.New("inverter UID required")
+	}
+	if paramName == "" {
+		return errors.New("parameter name required")
+	}
+	_, err := w.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO set_protection_parameters_inverter
+		 (id, parameter_name, parameter_value, set_flag) VALUES (?, ?, ?, 1)`,
+		invUID, paramName, value)
+	return err
+}
