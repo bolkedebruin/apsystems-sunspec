@@ -25,8 +25,14 @@ type Config struct {
 // WritesConfig gates Modbus write-class function codes (FC06, FC16) and
 // SunSpec Model 123 control actions.
 type WritesConfig struct {
-	// Enabled toggles whether the server accepts any writes. Default false.
-	Enabled bool `json:"enabled"`
+	// Enabled toggles whether the server accepts any writes.
+	//
+	// JSON tristate: omitted = nil = default (true); explicit false disables.
+	// The default is on so off-the-shelf ESS tooling (Victron Cerbo,
+	// dbus-fronius, Home Assistant) can drive Model 123 curtailment
+	// without operator intervention. Combine with AllowList /
+	// AllowLocalNetwork for source-address gating.
+	Enabled *bool `json:"enabled,omitempty"`
 
 	// AllowList is the list of additional remote-host IP addresses (or
 	// CIDRs) that may issue writes, beyond the loopback and local-subnet
@@ -44,6 +50,20 @@ type WritesConfig struct {
 	// JSON tristate: omitted = nil = default (true); explicit false disables.
 	AllowLocalNetwork *bool `json:"allow_local_network,omitempty"`
 }
+
+// IsEnabled reports whether writes are enabled. Default (nil) is true.
+func (w WritesConfig) IsEnabled() bool {
+	if w.Enabled == nil {
+		return true
+	}
+	return *w.Enabled
+}
+
+// BoolPtr returns a pointer to b. Convenience for programmatic config
+// construction (tests, sidecar config, etc.):
+//
+//	cfg.Writes.Enabled = config.BoolPtr(false)
+func BoolPtr(b bool) *bool { return &b }
 
 // LocalAllowed reports the effective value of AllowLocalNetwork — defaulting
 // to true when the field is omitted.
@@ -98,14 +118,14 @@ func (c Config) validate() error {
 // to issue writes.
 //
 // Decision order:
-//  1. Reject if writes.enabled is false.
+//  1. Reject if writes are explicitly disabled.
 //  2. Always allow loopback.
 //  3. Allow if the IP is in any local interface's subnet AND
 //     AllowLocalNetwork is on (default).
 //  4. Allow if the IP is listed in AllowList (exact match or CIDR).
 //  5. Reject otherwise.
 func (c Config) AllowsWrite(remoteAddr string) bool {
-	if !c.Writes.Enabled {
+	if !c.Writes.IsEnabled() {
 		return false
 	}
 	host, _, err := net.SplitHostPort(remoteAddr)

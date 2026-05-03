@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/bolke/ecu-sunspec/internal/source"
 	"github.com/bolke/ecu-sunspec/internal/sunspec"
@@ -18,9 +19,10 @@ import (
 //	uid 1     → applies to ALL inverters in snap.Inverters (aggregate)
 //	uid 2..N+1 → applies to snap.Inverters[uid-2] only
 type ControlsWriter struct {
-	uid    uint8
-	snap   source.Snapshot
-	writer *source.Writer
+	uid      uint8
+	snap     source.Snapshot
+	writer   *source.Writer
+	reverter *Reverter
 }
 
 // Apply takes a slice of registers freshly written by a client (offsets
@@ -32,12 +34,12 @@ type ControlsWriter struct {
 //	WMaxLim_Pct + WMaxLim_Ena=1 → cap each affected inverter's per-panel
 //	                              watts to (MaxPanelLimitW × pct / 100).
 //	WMaxLim_Ena=0               → restore to MaxPanelLimitW (full output).
+//	WMaxLim_Pct_RvrtTms > 0     → schedule auto-revert in N seconds. If the
+//	                              controller fails to refresh within that
+//	                              window, the cap is lifted (pre-2018
+//	                              Model 123 reversion semantics).
 //	Conn=0                      → turn the inverter(s) off.
 //	Conn=1                      → turn the inverter(s) back on.
-//
-// Auto-revert (WMaxLim_Pct_RvrtTms) is not honored — APsystems' control plane
-// has no concept of a windowed cap. Clients should clear the cap explicitly
-// when they want full output back.
 func (cw *ControlsWriter) Apply(ctx context.Context, addrOffset uint16, regs []uint16) error {
 	if cw == nil || cw.writer == nil {
 		return fmt.Errorf("writes disabled or writer not configured")
@@ -50,11 +52,14 @@ func (cw *ControlsWriter) Apply(ctx context.Context, addrOffset uint16, regs []u
 
 	enaWritten := writeTouches(addrOffset, regs, sunspec.OffControlsWMaxLimEna)
 	pctWritten := writeTouches(addrOffset, regs, sunspec.OffControlsWMaxLimPct)
+	rvrtWritten := writeTouches(addrOffset, regs, sunspec.OffControlsWMaxLimPctRvrtTms)
 
-	// WMaxLim_Ena=0 written explicitly → restore full output.
-	// WMaxLimPct written (with or without Ena) → apply that cap.
-	// Ena=1 written without Pct → no DB action (the existing cap stays in effect).
+	// WMaxLim_Ena=0 written explicitly → restore full output and cancel any
+	// pending reversion. WMaxLimPct written (with or without Ena) → apply
+	// that cap; if RvrtTms is non-zero, arm the reverter. Ena=1 written
+	// without Pct → no DB action (existing cap stays).
 	if enaWritten && readField(addrOffset, regs, sunspec.OffControlsWMaxLimEna) == 0 {
+		cw.reverter.Cancel(cw.uid)
 		if err := cw.restoreFull(ctx, targets); err != nil {
 			return err
 		}
@@ -62,6 +67,10 @@ func (cw *ControlsWriter) Apply(ctx context.Context, addrOffset uint16, regs []u
 		pct := readField(addrOffset, regs, sunspec.OffControlsWMaxLimPct)
 		if err := cw.applyCap(ctx, targets, pct); err != nil {
 			return err
+		}
+		if rvrtWritten {
+			rvrt := readField(addrOffset, regs, sunspec.OffControlsWMaxLimPctRvrtTms)
+			cw.armOrCancelReversion(rvrt, targets)
 		}
 	}
 
@@ -116,6 +125,17 @@ func (cw *ControlsWriter) applyCap(ctx context.Context, uids []string, pct uint1
 		}
 	}
 	return nil
+}
+
+// armOrCancelReversion translates the wire-format RvrtTms value into a
+// reverter Schedule call. The SunSpec uint16 not-implemented sentinel
+// (0xFFFF) and zero are both treated as "no auto-revert."
+func (cw *ControlsWriter) armOrCancelReversion(rvrtTmsSec uint16, targets []string) {
+	if rvrtTmsSec == 0 || rvrtTmsSec == 0xFFFF {
+		cw.reverter.Cancel(cw.uid)
+		return
+	}
+	cw.reverter.Schedule(cw.uid, time.Duration(rvrtTmsSec)*time.Second, targets)
 }
 
 func (cw *ControlsWriter) applyConn(ctx context.Context, uids []string, conn uint16) error {

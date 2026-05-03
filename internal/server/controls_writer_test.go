@@ -65,7 +65,7 @@ func TestServer_WriteWMaxLimPct_PerInverter(t *testing.T) {
 		RefreshInterval: time.Second,
 		Writer:          writer,
 		Writes: config.Config{Writes: config.WritesConfig{
-			Enabled:   true,
+			Enabled:   config.BoolPtr(true),
 			AllowList: nil, // loopback always allowed
 		}},
 	})
@@ -142,7 +142,7 @@ func TestServer_WriteRejectedWhenDisabled(t *testing.T) {
 	srv := New(fixedProvider{snap}, Config{
 		URL:    "tcp://127.0.0.1:" + strconv.Itoa(port),
 		Writer: writer,
-		// Writes.Enabled: false (default) — should reject all writes
+		Writes: config.Config{Writes: config.WritesConfig{Enabled: config.BoolPtr(false)}},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -179,7 +179,7 @@ func TestServer_WriteConn_TurnsOff(t *testing.T) {
 	srv := New(fixedProvider{snap}, Config{
 		URL:    "tcp://127.0.0.1:" + strconv.Itoa(port),
 		Writer: writer,
-		Writes: config.Config{Writes: config.WritesConfig{Enabled: true}},
+		Writes: config.Config{Writes: config.WritesConfig{Enabled: config.BoolPtr(true)}},
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

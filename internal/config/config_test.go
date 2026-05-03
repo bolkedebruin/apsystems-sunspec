@@ -12,8 +12,34 @@ func TestLoad_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected no error for missing file, got %v", err)
 	}
-	if c.Writes.Enabled {
-		t.Error("missing file should default to writes disabled")
+	if !c.Writes.IsEnabled() {
+		t.Error("missing file should default to writes ENABLED")
+	}
+}
+
+func TestLoad_OmittedEnabled_DefaultsTrue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sunspec.json")
+	os.WriteFile(path, []byte(`{"writes": {"allow_list": ["10.0.0.1"]}}`), 0644)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.Writes.IsEnabled() {
+		t.Error("omitted enabled should default to true")
+	}
+}
+
+func TestLoad_ExplicitFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sunspec.json")
+	os.WriteFile(path, []byte(`{"writes": {"enabled": false}}`), 0644)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Writes.IsEnabled() {
+		t.Error("explicit enabled=false should disable writes")
 	}
 }
 
@@ -29,7 +55,7 @@ func TestLoad_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.Writes.Enabled {
+	if !c.Writes.IsEnabled() {
 		t.Error("writes.enabled should be true")
 	}
 	if len(c.Writes.AllowList) != 2 {
@@ -61,20 +87,19 @@ func TestAllowsWrite_LocalNetwork(t *testing.T) {
 	}{
 		{"default (nil) allows local", nil, "10.0.0.42:5555", true},
 		{"default (nil) blocks remote", nil, "8.8.8.8:5555", false},
-		{"explicit true allows local", boolPtr(true), "10.0.0.42:5555", true},
-		{"explicit false blocks local", boolPtr(false), "10.0.0.42:5555", false},
+		{"explicit true allows local", BoolPtr(true), "10.0.0.42:5555", true},
+		{"explicit false blocks local", BoolPtr(false), "10.0.0.42:5555", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cfg := Config{Writes: WritesConfig{Enabled: true, AllowLocalNetwork: c.allowLN}}
+			cfg := Config{Writes: WritesConfig{Enabled: BoolPtr(true), AllowLocalNetwork: c.allowLN}}
+
 			if got := cfg.AllowsWrite(c.remote); got != c.want {
 				t.Errorf("got %v want %v", got, c.want)
 			}
 		})
 	}
 }
-
-func boolPtr(b bool) *bool { return &b }
 
 func TestAllowsWrite(t *testing.T) {
 	cases := []struct {
@@ -84,36 +109,36 @@ func TestAllowsWrite(t *testing.T) {
 		want   bool
 	}{
 		{"writes off",
-			Config{Writes: WritesConfig{Enabled: false, AllowList: []string{"10.0.0.1"}}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(false), AllowList: []string{"10.0.0.1"}}},
 			"10.0.0.1:5555", false},
 
 		{"loopback always allowed when enabled",
-			Config{Writes: WritesConfig{Enabled: true}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(true)}},
 			"127.0.0.1:5555", true},
 		{"loopback not allowed when disabled",
-			Config{Writes: WritesConfig{Enabled: false}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(false)}},
 			"127.0.0.1:5555", false},
 
 		{"exact IP match",
-			Config{Writes: WritesConfig{Enabled: true, AllowList: []string{"10.0.0.1"}}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(true), AllowList: []string{"10.0.0.1"}}},
 			"10.0.0.1:5555", true},
 		{"exact IP no match",
-			Config{Writes: WritesConfig{Enabled: true, AllowList: []string{"10.0.0.1"}}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(true), AllowList: []string{"10.0.0.1"}}},
 			"10.0.0.2:5555", false},
 
 		{"CIDR match",
-			Config{Writes: WritesConfig{Enabled: true, AllowList: []string{"10.0.0.0/24"}}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(true), AllowList: []string{"10.0.0.0/24"}}},
 			"10.0.0.42:5555", true},
 		{"CIDR no match",
-			Config{Writes: WritesConfig{Enabled: true, AllowList: []string{"10.0.0.0/24"}}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(true), AllowList: []string{"10.0.0.0/24"}}},
 			"10.0.1.42:5555", false},
 
 		{"empty allowlist denies non-loopback",
-			Config{Writes: WritesConfig{Enabled: true, AllowList: nil}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(true), AllowList: nil}},
 			"10.0.0.1:5555", false},
 
 		{"address without port still parses",
-			Config{Writes: WritesConfig{Enabled: true, AllowList: []string{"10.0.0.1"}}},
+			Config{Writes: WritesConfig{Enabled: BoolPtr(true), AllowList: []string{"10.0.0.1"}}},
 			"10.0.0.1", true},
 	}
 	for _, c := range cases {

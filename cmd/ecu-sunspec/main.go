@@ -66,8 +66,10 @@ func main() {
 	if err != nil {
 		logger.Fatalf("load config %s: %v", *configPath, err)
 	}
-	if cfg.Writes.Enabled {
+	if cfg.Writes.IsEnabled() {
 		logger.Printf("writes enabled; allow_list=%v", cfg.Writes.AllowList)
+	} else {
+		logger.Printf("writes explicitly disabled")
 	}
 
 	db, err := source.OpenSQLite(*dbDir)
@@ -79,7 +81,7 @@ func main() {
 	// Open the writer only if writes are enabled — keeps the ro/rw fault
 	// surface as small as possible for read-only deployments.
 	var writer *source.Writer
-	if cfg.Writes.Enabled {
+	if cfg.Writes.IsEnabled() {
 		writer, err = source.OpenWriter(*dbDir)
 		if err != nil {
 			logger.Fatalf("open writer on %s: %v", *dbDir, err)

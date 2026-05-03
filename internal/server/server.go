@@ -31,12 +31,13 @@ type Config struct {
 	Encoder         sunspec.Options
 	Logger          *log.Logger
 
-	// Writes is the file-loaded config (writes.enabled + allow_list). When
-	// Writes.Enabled is false (the default), all FC06/FC10 are rejected with
-	// IllegalFunction.
+	// Writes is the file-loaded config (writes.enabled + allow_list).
+	// Default (omitted) is enabled; explicit "enabled": false disables all
+	// FC06/FC10. Source-address gating still applies via AllowList /
+	// AllowLocalNetwork.
 	Writes config.Config
 
-	// Writer is the SQLite write handle. Required when Writes.Enabled is true;
+	// Writer is the SQLite write handle. Required when writes are enabled;
 	// optional otherwise. The server takes no ownership — caller must Close().
 	Writer *source.Writer
 }
@@ -67,6 +68,11 @@ type Server struct {
 	// Reconciled after each snapshot refresh.
 	tracker *WriteTracker
 
+	// reverter auto-restores full power when a Model 123 WMaxLimPct write
+	// included a non-zero RvrtTms and no refresh arrived in time. nil when
+	// no Writer is configured.
+	reverter *Reverter
+
 	logger *log.Logger
 }
 
@@ -96,6 +102,7 @@ func New(p Provider, cfg Config) *Server {
 		provider: p,
 		logger:   cfg.Logger,
 		tracker:  NewWriteTracker(),
+		reverter: NewReverter(cfg.Writer, cfg.Logger),
 	}
 }
 
@@ -135,6 +142,7 @@ func (s *Server) Stop() error {
 	s.mu.Lock()
 	srv := s.srv
 	s.mu.Unlock()
+	s.reverter.Stop()
 	if srv == nil {
 		return nil
 	}
@@ -249,7 +257,7 @@ func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, er
 
 	if !o.cfg.Writes.AllowsWrite(req.ClientAddr) {
 		reason := "writes disabled"
-		if o.cfg.Writes.Writes.Enabled {
+		if o.cfg.Writes.Writes.IsEnabled() {
 			reason = "client not in allow_list"
 		}
 		o.logger.Printf("FC06/16 write from %s uid=%d addr=%d → rejected (%s)",
@@ -284,9 +292,10 @@ func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, er
 			id:      sunspec.ControlsModelID,
 			bodyLen: sunspec.ControlsBodyLen,
 			apply: (&ControlsWriter{
-				uid:    req.UnitId,
-				snap:   *snapPtr,
-				writer: o.cfg.Writer,
+				uid:      req.UnitId,
+				snap:     *snapPtr,
+				writer:   o.cfg.Writer,
+				reverter: o.reverter,
 			}).Apply,
 		},
 		{
