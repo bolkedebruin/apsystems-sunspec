@@ -187,11 +187,11 @@ func emitFreqWattCurve(bank *Bank, p source.ProtectionParams) {
 	}
 	bank.put16(modEna)
 
-	bank.put16(0)                       // WinTms (unused)
-	bank.put16(0)                       // RvrtTms
-	bank.put16(0)                       // RmpTms
-	bank.put16(freqWattCurveNCrv)       // NCrv
-	bank.put16(freqWattCurveNPtMax)     // NPt — declared capacity (20)
+	bank.put16(0)                   // WinTms (unused)
+	bank.put16(0)                   // RvrtTms
+	bank.put16(0)                   // RmpTms
+	bank.put16(freqWattCurveNCrv)   // NCrv
+	bank.put16(freqWattCurveNPtMax) // NPt — declared capacity (20)
 	bank.put16(scaleFactor(freqWattCurveHzSF))
 	bank.put16(scaleFactor(freqWattCurveWSF))
 	bank.put16(scaleFactor(freqWattCurveRmpIncDecSF))
