@@ -317,6 +317,16 @@ func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, er
 				tracker: o.tracker,
 			}).Apply,
 		},
+		{
+			id:      sunspec.FreqWattCurveModelID,
+			bodyLen: sunspec.FreqWattCurveBodyLen,
+			apply: (&FreqWattCurveWriter{
+				uid:     req.UnitId,
+				snap:    *snapPtr,
+				writer:  o.cfg.Writer,
+				tracker: o.tracker,
+			}).Apply,
+		},
 	}
 
 	for _, m := range candidates {

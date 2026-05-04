@@ -303,6 +303,7 @@ func Encode(s source.Snapshot, opt Options) Bank {
 		rslt, req := lookupWriteRslt(opt, 1, FreqDroopModelID)
 		emitFreqDroop(&bank, aggregateProtection(s), rslt, req)
 	}
+	emitFreqWattCurve(&bank, aggregateProtection(s))
 
 	// --- Multi-MPPT Model 160 (one module per panel of every online inverter) ---
 	if !opt.DisableMPPT {

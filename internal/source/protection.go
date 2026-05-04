@@ -71,6 +71,17 @@ type ProtectionParams struct {
 	OFDroopSlope float64 // DD
 	OFDroopMode  float64 // CV
 
+	// Curve-based freq-watt thresholds. Map onto SunSpec Model 134's
+	// 4-point Freq-Watt curve (DH/DI under-freq, CB/CC over-freq).
+	//
+	//	DH = OFCurveUFLow   (Under_Frequency_Watt_Low_set,  W=0%)
+	//	DI = OFCurveUFHigh  (Under_Frequency_Watt_High_set, W=100%)
+	//	CB = OFCurveOFLow   (Over_frequency_Watt_Low_set,   W=100%)
+	//	CC overlaps OFDroopEnd above (Over_frequency_Watt_High_set, W=0%).
+	OFCurveUFLow  float64 // DH
+	OFCurveUFHigh float64 // DI
+	OFCurveOFLow  float64 // CB
+
 	Has map[string]bool
 }
 
@@ -79,8 +90,24 @@ type ProtectionParams struct {
 // after a successful "get protection params" cycle. Returns an empty map
 // (no error) if the table is missing or empty — older firmwares may not
 // populate it.
+//
+// Tries the full SELECT first (including the Model 134 freq-watt curve
+// columns CB/DH/DI). If those columns are absent on an older firmware /
+// older fixture, retries without them rather than failing — keeps the
+// reader compatible across firmware revisions.
 func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]ProtectionParams, error) {
-	const q = `SELECT id,
+	const qFull = `SELECT id,
+	  AB, AC, AD, AE, AF,
+	  AG, AH, AI, AJ, AK,
+	  AQ, "AS", AY,
+	  BB, BC, BD, BE,
+	  BH, BI, BJ, BK,
+	  BN, BO, BP, BQ,
+	  CH,
+	  CC, CV, DC, DD,
+	  CB, DH, DI
+	FROM protection_parameters60code`
+	const qBasic = `SELECT id,
 	  AB, AC, AD, AE, AF,
 	  AG, AH, AI, AJ, AK,
 	  AQ, "AS", AY,
@@ -90,13 +117,26 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 	  CH,
 	  CC, CV, DC, DD
 	FROM protection_parameters60code`
-	rows, err := s.live.QueryContext(ctx, q)
+
+	rows, err := s.live.QueryContext(ctx, qFull)
+	hasCurve := true
 	if err != nil {
-		// Table missing → not an error condition; older firmware.
 		if strings.Contains(err.Error(), "no such table") {
 			return map[string]ProtectionParams{}, nil
 		}
-		return nil, err
+		// Older fixture without the curve columns — retry without them.
+		if strings.Contains(err.Error(), "no such column") {
+			hasCurve = false
+			rows, err = s.live.QueryContext(ctx, qBasic)
+			if err != nil {
+				if strings.Contains(err.Error(), "no such table") {
+					return map[string]ProtectionParams{}, nil
+				}
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 	defer rows.Close()
 	out := make(map[string]ProtectionParams)
@@ -111,20 +151,37 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 			bn, bo, bp, bq     sql.NullFloat64
 			ch                 sql.NullFloat64
 			cc, cv, dc, dd     sql.NullFloat64
+			cb, dh, di         sql.NullFloat64
 		)
-		if err := rows.Scan(&uid,
-			&ab, &ac, &ad, &ae, &af,
-			&ag, &ah, &ai, &aj, &ak,
-			&aq, &asStart, &ay,
-			&bb, &bc, &bd, &be,
-			&bh, &bi, &bj, &bk,
-			&bn, &bo, &bp, &bq,
-			&ch,
-			&cc, &cv, &dc, &dd,
-		); err != nil {
-			return nil, err
+		if hasCurve {
+			if err := rows.Scan(&uid,
+				&ab, &ac, &ad, &ae, &af,
+				&ag, &ah, &ai, &aj, &ak,
+				&aq, &asStart, &ay,
+				&bb, &bc, &bd, &be,
+				&bh, &bi, &bj, &bk,
+				&bn, &bo, &bp, &bq,
+				&ch,
+				&cc, &cv, &dc, &dd,
+				&cb, &dh, &di,
+			); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&uid,
+				&ab, &ac, &ad, &ae, &af,
+				&ag, &ah, &ai, &aj, &ak,
+				&aq, &asStart, &ay,
+				&bb, &bc, &bd, &be,
+				&bh, &bi, &bj, &bk,
+				&bn, &bo, &bp, &bq,
+				&ch,
+				&cc, &cv, &dc, &dd,
+			); err != nil {
+				return nil, err
+			}
 		}
-		p := ProtectionParams{Has: make(map[string]bool, 26)}
+		p := ProtectionParams{Has: make(map[string]bool, 32)}
 		set := func(code string, v sql.NullFloat64, dst *float64) {
 			if v.Valid {
 				*dst = v.Float64
@@ -161,6 +218,9 @@ func (s *SQLiteReader) PerInverterProtection(ctx context.Context) (map[string]Pr
 		set("CV", cv, &p.OFDroopMode)
 		set("DC", dc, &p.OFDroopStart)
 		set("DD", dd, &p.OFDroopSlope)
+		set("CB", cb, &p.OFCurveOFLow)
+		set("DH", dh, &p.OFCurveUFLow)
+		set("DI", di, &p.OFCurveUFHigh)
 		out[uid] = p
 	}
 	return out, rows.Err()

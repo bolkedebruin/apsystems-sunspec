@@ -229,27 +229,28 @@ func TestFreqDroopWriter_QS1A_DbOfRoutesDirect(t *testing.T) {
 	}
 }
 
-// QS1A + KOf maps to Over_Frequency_Watt_Slope_set (CF), which is in
-// the gridProfile-only set. The Go writer doesn't yet implement that
-// path, so it must surface a clear error AND must not queue a row.
-func TestFreqDroopWriter_QS1A_KOfRoutesGridProfile(t *testing.T) {
+// QS1A + KOf maps to Over_Frequency_Watt_Slope_set (CF). Both per-
+// inverter direct AND gridProfile broadcast paths have been confirmed
+// not to land CF on QS1A (firmware-level reject), so the writer must
+// surface RouteUnsupported and NOT queue a row.
+func TestFreqDroopWriter_QS1A_KOfRoutesUnsupported(t *testing.T) {
 	fdw, dir := newFreqDroopWriterFixtureModel(t, 2, 0x18, activeProt(), "INV-A")
 	err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{400})
 	if err == nil {
-		t.Fatal("expected gridProfile-not-implemented error on QS1A slope")
+		t.Fatal("expected unsupported-on-QS1A error for slope")
 	}
 	if _, ok := readQueuedParam(t, dir, "INV-A", "Over_Frequency_Watt_Slope_set"); ok {
 		t.Error("slope row must not be queued on the direct path for QS1A")
 	}
 }
 
-// QS1A + RspTms maps to Over_frequency_Watt_Delay_Time_set (CG), also
-// gridProfile-only. Same expectations as the slope test.
-func TestFreqDroopWriter_QS1A_RspTmsRoutesGridProfile(t *testing.T) {
+// QS1A + RspTms maps to Over_frequency_Watt_Delay_Time_set (CG). Same
+// QS1A firmware-level reject as CF. RouteUnsupported, no queue row.
+func TestFreqDroopWriter_QS1A_RspTmsRoutesUnsupported(t *testing.T) {
 	fdw, dir := newFreqDroopWriterFixtureModel(t, 2, 0x18, activeProt(), "INV-A")
 	err := fdw.Apply(context.Background(), freqDroopBodyRspTmsHi, []uint16{0, 5})
 	if err == nil {
-		t.Fatal("expected gridProfile-not-implemented error on QS1A delay")
+		t.Fatal("expected unsupported-on-QS1A error for delay")
 	}
 	if _, ok := readQueuedParam(t, dir, "INV-A", "Over_frequency_Watt_Delay_Time_set"); ok {
 		t.Error("delay row must not be queued on the direct path for QS1A")
@@ -283,8 +284,13 @@ func TestRouteFor(t *testing.T) {
 		{FamilyQS1A, "Over_frequency_Watt_High_set", RouteDirect},
 		{FamilyQS1A, "Delt_P_Over_HF", RouteDirect},
 		{FamilyQS1A, "Over_frequency_Watt_recover_High_set", RouteUnsupported},
-		{FamilyQS1A, "Over_Frequency_Watt_Slope_set", RouteGridProfile},
-		{FamilyQS1A, "Over_frequency_Watt_Delay_Time_set", RouteGridProfile},
+		{FamilyQS1A, "Over_Frequency_Watt_Slope_set", RouteUnsupported},
+		{FamilyQS1A, "Over_frequency_Watt_Delay_Time_set", RouteUnsupported},
+		{FamilyQS1A, "Under_Frequency_Watt_Low_set", RouteDirect},
+		{FamilyQS1A, "Under_Frequency_Watt_High_set", RouteDirect},
+		{FamilyQS1A, "Over_frequency_Watt_Low_set", RouteDirect},
+		{FamilyDS3, "Over_frequency_Watt_Low_set", RouteDirect},
+		{FamilyDS3, "Under_Frequency_Watt_Low_set", RouteDirect},
 		{FamilyUnknown, "anything", RouteUnsupported},
 	}
 	for _, tc := range cases {
@@ -295,20 +301,20 @@ func TestRouteFor(t *testing.T) {
 	}
 }
 
-// freqWattCurvePoints documents which Model 711 registers map to which
-// APsystems long-form name. Pin the contents so the writer's inline
-// DbOf path stays consistent with the table.
+// freqWattCurvePoints documents which SunSpec freq-watt registers map
+// to which APsystems long-form name. Pin the contents so the writers'
+// dispatch paths stay consistent with the table.
 func TestFreqWattCurvePoints_DbOfMapping(t *testing.T) {
 	var found *FreqWattCurvePoint
 	for i := range freqWattCurvePoints {
 		cp := &freqWattCurvePoints[i]
-		if cp.Body == freqDroopBodyDbOfHi && cp.BodyLo == freqDroopBodyDbOfLo {
+		if cp.Model == 711 && cp.Body == freqDroopBodyDbOfHi && cp.BodyLo == freqDroopBodyDbOfLo {
 			found = cp
 			break
 		}
 	}
 	if found == nil {
-		t.Fatal("expected a curve-point entry covering DbOf body[12..13]")
+		t.Fatal("expected a Model 711 curve-point entry covering DbOf body[12..13]")
 	}
 	if found.Aps != "Over_frequency_Watt_Start_set" {
 		t.Errorf("DbOf maps to %q, want Over_frequency_Watt_Start_set", found.Aps)
@@ -320,6 +326,38 @@ func TestFreqWattCurvePoints_DbOfMapping(t *testing.T) {
 	// DbOf branch uses.
 	if got := found.Decode(0, 50); got < 50.49 || got > 50.51 {
 		t.Errorf("Decode(0,50) = %v, want ~50.5", got)
+	}
+}
+
+// Pin the Model 134 mappings: each (Hz body offset → APsystems param)
+// must match what FreqWattCurveWriter dispatches.
+func TestFreqWattCurvePoints_Model134Mapping(t *testing.T) {
+	wantByCode := map[string]string{
+		"DH": "Under_Frequency_Watt_Low_set",
+		"DI": "Under_Frequency_Watt_High_set",
+		"CB": "Over_frequency_Watt_Low_set",
+		"CC": "Over_frequency_Watt_High_set",
+	}
+	got := map[string]string{}
+	for _, cp := range freqWattCurvePoints {
+		if cp.Model != 134 {
+			continue
+		}
+		got[cp.Code] = cp.Aps
+	}
+	for code, want := range wantByCode {
+		if got[code] != want {
+			t.Errorf("Model 134 code %s maps to %q, want %q", code, got[code], want)
+		}
+	}
+	// Decode 5020 → 50.20 Hz (Hz_SF = -2).
+	for _, cp := range freqWattCurvePoints {
+		if cp.Model != 134 {
+			continue
+		}
+		if got := cp.Decode(5020, 0); got < 50.19 || got > 50.21 {
+			t.Errorf("Model 134 %s Decode(5020,0) = %v, want ~50.20", cp.Code, got)
+		}
 	}
 }
 

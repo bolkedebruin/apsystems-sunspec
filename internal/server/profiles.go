@@ -1,5 +1,7 @@
 package server
 
+import "github.com/bolke/ecu-sunspec/internal/sunspec"
+
 // Per-family routing for grid-protection parameter writes.
 //
 // APsystems' main.exe routes a single SQLite-queued protection-parameter
@@ -19,11 +21,16 @@ package server
 //	model 0x20/21/22/36  → DS3 family   (opcode 0xAB)
 //	model 0x29/30/31/32  → QT2 family   (opcode 0xAD)
 //
-// QS1A reject-set (security/qs1-dc-rejection.md, qs1a-probe-results.md):
+// QS1A reject-set (security/qs1-dc-rejection.md, qs1a-probe-results.md,
+// memory/qs1a_dc_cg_cf_unwriteable.md):
 // per-parameter writes via set_protection_parameters_inverter are
-// honoured for CA / CB / CC / DD but the inverter firmware silently
-// drops DC / CG / CF — those have to ride through the gridProfile push
-// (singlegridPfile.conf + /tmp/set_sPfile.conf trigger).
+// honoured for CA / CB / CC / DD / DH / DI but the inverter firmware
+// silently drops DC / CG / CF on BOTH host-side paths — both the per-
+// inverter direct path AND the gridProfile broadcast path
+// (singlegridPfile.conf + /tmp/set_sPfile.conf trigger) have been
+// confirmed not to land them. The reject is at the QS1A inverter
+// firmware level; no host-side mechanism applies. Routes for those
+// three are RouteUnsupported.
 
 // InverterFamily groups the model codes that share an on-wire frame
 // builder inside main.exe.
@@ -104,18 +111,18 @@ func routeFor(family InverterFamily, paramName string) WriteRoute {
 
 	case FamilyQS1A:
 		switch paramName {
-		case apsRecoverHighName:
-			// Probed 2026-05-04 on QS1A 806000042582: per-inverter SET
-			// frame transmits but the inverter never updates its
-			// internal state. No host-side wire-frame change can fix
-			// this — see security/qs1-dc-rejection.md.
+		case apsRecoverHighName, apsSlopeName, apsDelayTimeName:
+			// DC / CF / CG silently no-op on QS1A regardless of host-
+			// side mechanism. Both per-inverter direct
+			// (set_protection_parameters_inverter) and gridProfile
+			// broadcast (singlegridPfile.conf + set_sPfile.conf) have
+			// been confirmed not to land these — the reject is at the
+			// QS1A inverter firmware level. See
+			// security/qs1-dc-rejection.md and
+			// memory/qs1a_dc_cg_cf_unwriteable.md.
 			return RouteUnsupported
-		case apsSlopeName, apsDelayTimeName:
-			// QS1A drops these on the per-inverter path but accepts
-			// them as part of a whole-profile load. Use gridProfile.
-			return RouteGridProfile
 		}
-		// CA / CB / CC / DD and everything else: per-inverter applies.
+		// CA / CB / CC / DD / DH / DI and everything else: per-inverter applies.
 		return RouteDirect
 
 	case FamilyDS3:
@@ -136,42 +143,55 @@ func routeFor(family InverterFamily, paramName string) WriteRoute {
 	return RouteDirect
 }
 
-// FreqWattCurvePoint binds a SunSpec Model 711 register (by its body
-// offset) to the APsystems long-form parameter name written through
-// Writer.SetProtectionParam. The Code field is the 2-letter APsystems
-// code (for logs / cross-references with protection_parameters60code).
+// FreqWattCurvePoint binds a SunSpec freq-watt register (by its body
+// offset within a specific model) to the APsystems long-form parameter
+// name written through Writer.SetProtectionParam. The Code field is the
+// 2-letter APsystems code (for logs / cross-references with
+// protection_parameters60code).
 //
-// Encoder is the function that decodes the wire register(s) at Body
-// into a float64 value in the units the long-form name expects.
+// Decode is the function that decodes the wire register(s) at Body
+// into a float64 value in the units the long-form name expects. For
+// uint16 wire values BodyLo is 0 and only `hi` carries the register.
 type FreqWattCurvePoint struct {
-	Body   uint16 // first body offset within Model 711
+	Model  uint16 // SunSpec model ID this offset lives in (711 or 134)
+	Body   uint16 // first body offset within the model
 	BodyLo uint16 // second body offset for uint32 fields, 0 otherwise
 	Aps    string // APsystems long-form parameter name
 	Code   string // 2-letter code, for logs only
 	Decode func(hi, lo uint16) float64
 }
 
-// freqWattCurvePoints describes the Model 711 → APsystems long-form
-// mappings the writer routes through routeFor. The current set covers
-// only the registers Model 711 actually defines that the writer doesn't
-// already handle elsewhere by name:
+// freqWattCurvePoints describes the SunSpec freq-watt register →
+// APsystems long-form mappings the writers route through routeFor.
+//
+// Model 711 (DERFreqDroop): the parametric droop curve.
 //
 //	DbOf (body[12..13]) → Over_frequency_Watt_Start_set (CA)
 //
-// SunSpec Model 711 has NO register for the curtailment endpoint
-// (CC=Over_frequency_Watt_High_set) or the lower edge
-// (CB=Over_frequency_Watt_Low_set) — those belong to the trip / ride-
-// through model (Model 710), not the droop model. They are listed here
-// only to document the absence; the writer does not consume them.
+// CF (Slope) and CG (Delay) are intentionally omitted from this table —
+// they're already handled inline by FreqDroopWriter.Apply via the KOf
+// and RspTms branches, both of which consult routeFor directly.
 //
-// CF (Slope) and CG (Delay) are intentionally omitted — they are
-// already handled inline by FreqDroopWriter.Apply via the KOf and
-// RspTms branches, both of which now consult routeFor.
+// Model 134 (Freq-Watt Crv): a 4-point curve mapping the APsystems
+// under/over frequency-watt thresholds onto the SunSpec curve points.
+// W% values are intrinsic to the curve role (0/100/100/0); only Hz is
+// user-driven.
 //
-// DD (Delt_P_Over_HF) has no SunSpec Model 711 register; expose
-// through a different write path if/when needed.
+//	Hz1 (curve body[1])  → Under_Frequency_Watt_Low_set  (DH, W=0%)
+//	Hz2 (curve body[3])  → Under_Frequency_Watt_High_set (DI, W=100%)
+//	Hz3 (curve body[5])  → Over_frequency_Watt_Low_set   (CB, W=100%)
+//	Hz4 (curve body[7])  → Over_frequency_Watt_High_set  (CC, W=0%)
+//
+// Body offsets here are absolute within the Model 134 body (header is
+// 10 regs; curve starts at body[10]; ActPt at body[10] then Hz1 at
+// body[11], W1 at body[12], etc.). See internal/sunspec/freq_watt_curve.go
+// for the layout constants. Hz_SF=-2 → wire = Hz×100.
+//
+// DD (Delt_P_Over_HF) has no SunSpec Model 711 / 134 register;
+// expose through a different write path if/when needed.
 var freqWattCurvePoints = []FreqWattCurvePoint{
 	{
+		Model:  711,
 		Body:   12, // freqDroopBodyDbOfHi
 		BodyLo: 13, // freqDroopBodyDbOfLo
 		Aps:    "Over_frequency_Watt_Start_set",
@@ -179,6 +199,43 @@ var freqWattCurvePoints = []FreqWattCurvePoint{
 		Decode: func(hi, lo uint16) float64 {
 			// DbOf is centi-Hz deadband above 50 Hz nominal.
 			return 50.0 + float64(uint32(hi)<<16|uint32(lo))/100.0
+		},
+	},
+	{
+		Model: 134,
+		Body:  sunspec.FreqWattCurveBodyHz1Off,
+		Aps:   "Under_Frequency_Watt_Low_set",
+		Code:  "DH",
+		Decode: func(hi, _ uint16) float64 {
+			// Hz_SF = -2 → wire is centi-Hz absolute frequency.
+			return float64(hi) / 100.0
+		},
+	},
+	{
+		Model: 134,
+		Body:  sunspec.FreqWattCurveBodyHz2Off,
+		Aps:   "Under_Frequency_Watt_High_set",
+		Code:  "DI",
+		Decode: func(hi, _ uint16) float64 {
+			return float64(hi) / 100.0
+		},
+	},
+	{
+		Model: 134,
+		Body:  sunspec.FreqWattCurveBodyHz3Off,
+		Aps:   "Over_frequency_Watt_Low_set",
+		Code:  "CB",
+		Decode: func(hi, _ uint16) float64 {
+			return float64(hi) / 100.0
+		},
+	},
+	{
+		Model: 134,
+		Body:  sunspec.FreqWattCurveBodyHz4Off,
+		Aps:   "Over_frequency_Watt_High_set",
+		Code:  "CC",
+		Decode: func(hi, _ uint16) float64 {
+			return float64(hi) / 100.0
 		},
 	},
 }
