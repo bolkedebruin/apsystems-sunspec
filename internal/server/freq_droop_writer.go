@@ -22,16 +22,19 @@ import (
 //	body[14..15] DbUf  uint32      read-only (UF-side not yet mapped)
 //	body[16]   KOf                 WRITABLE — OF droop slope (%Pref/Hz, sf=-1)
 //	body[17]   KUf                 read-only
-//	body[18..19] RspTms uint32     read-only (firmware-fixed; APsystems DW)
+//	body[18..19] RspTms uint32     WRITABLE — OF response delay (sec, sf=0)
 //	body[20]   PMin                read-only (Model 711 doesn't define an
 //	                               endpoint — droop bounded by inverter PMin)
 //	body[21]   ReadOnly            read-only
 //
 // Long-name dispatch via Writer.SetProtectionParam:
 //
-//	Ena   → Over_frequency_Watt_set (CV: 13 AS/NZS, 14 other, 15 disabled)
-//	DbOf  → Over_frequency_Watt_Start_set (Hz = 50.0 + DbOf/100)
-//	KOf   → Over_Frequency_Watt_Slope_set (%Pref/Hz, written as DD/10)
+//	Ena    → Over_frequency_Watt_set (CV: 13 AS/NZS, 14 other, 15 disabled)
+//	DbOf   → Over_frequency_Watt_Start_set (Hz = 50.0 + DbOf/100)
+//	KOf    → Over_Frequency_Watt_Slope_set (%Pref/Hz, written as DD/10)
+//	RspTms → Over_frequency_Watt_Delay_Time_set (CG, whole seconds; the ECU
+//	         writer applies the per-family scale: DS3 stores s+0.5, QS1
+//	         multiplies by DAT_6dc28)
 //
 // Per EN 50549-1, the droop gradient (16.7..100 %P/Hz, corresponding to
 // 12%..2% droop) is the standard parameter; APsystems' DD code holds it
@@ -66,6 +69,8 @@ const (
 	freqDroopBodyDbOfHi   = 12
 	freqDroopBodyDbOfLo   = 13
 	freqDroopBodyKOf      = 16
+	freqDroopBodyRspTmsHi = 18
+	freqDroopBodyRspTmsLo = 19
 
 	// OF-trip safety margin (Hz). HzStart (where curtailment begins) must
 	// sit at least this far below the inverter's OF1 trip — guarantees the
@@ -96,8 +101,27 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 	if idx < 0 || idx >= len(fdw.snap.Inverters) {
 		return fmt.Errorf("unit ID %d not mapped to any inverter", fdw.uid)
 	}
-	uid := fdw.snap.Inverters[idx].UID
+	inv := fdw.snap.Inverters[idx]
+	uid := inv.UID
+	family := familyForModel(inv.Model)
 	prot := fdw.snap.Protection[uid]
+
+	// dispatch routes a single (paramName, value) write through the
+	// path appropriate for this inverter family. Centralizes the
+	// routeFor consult so each writable field below stays a one-liner.
+	dispatch := func(paramName string, value float64) error {
+		switch routeFor(family, paramName) {
+		case RouteDirect:
+			return fdw.writer.SetProtectionParam(ctx, uid, paramName, value)
+		case RouteGridProfile:
+			return fmt.Errorf("%s on family %d (%s) requires gridProfile push, "+
+				"not yet implemented in Go writer", paramName, inv.Model, uid)
+		case RouteUnsupported:
+			return fmt.Errorf("%s on family %d (%s) is not supported "+
+				"by inverter firmware on either write path", paramName, inv.Model, uid)
+		}
+		return fmt.Errorf("%s: unknown write route", paramName)
+	}
 
 	// Determine which fields the write touches.
 	wantsEna := writeTouches(addrOffset, regs, freqDroopBodyEna)
@@ -105,6 +129,8 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 	wantsDbOf := writeTouches(addrOffset, regs, freqDroopBodyDbOfHi) &&
 		writeTouches(addrOffset, regs, freqDroopBodyDbOfLo)
 	wantsKOf := writeTouches(addrOffset, regs, freqDroopBodyKOf)
+	wantsRspTms := writeTouches(addrOffset, regs, freqDroopBodyRspTmsHi) &&
+		writeTouches(addrOffset, regs, freqDroopBodyRspTmsLo)
 
 	// Reject writes that touch any read-only register in the model body.
 	for off := uint16(0); off < 22; off++ {
@@ -113,20 +139,21 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 		}
 		switch off {
 		case freqDroopBodyEna, freqDroopBodyAdptReq,
-			freqDroopBodyDbOfHi, freqDroopBodyDbOfLo, freqDroopBodyKOf:
+			freqDroopBodyDbOfHi, freqDroopBodyDbOfLo, freqDroopBodyKOf,
+			freqDroopBodyRspTmsHi, freqDroopBodyRspTmsLo:
 			// writable
 		case freqDroopBodyAdptRslt:
 			return fmt.Errorf("AdptCtlRslt is server-published (read-only)")
 		default:
 			return fmt.Errorf("Model 711 body offset %d is read-only "+
-				"(only Ena, AdptCtlReq, DbOf, KOf are writable)", off)
+				"(only Ena, AdptCtlReq, DbOf, KOf, RspTms are writable)", off)
 		}
 	}
-	if !(wantsEna || wantsDbOf || wantsKOf) {
+	if !(wantsEna || wantsDbOf || wantsKOf || wantsRspTms) {
 		if wantsReq {
 			return nil // no-op counter bump
 		}
-		return fmt.Errorf("Model 711 write must touch at least one writable field (Ena/DbOf/KOf)")
+		return fmt.Errorf("Model 711 write must touch at least one writable field (Ena/DbOf/KOf/RspTms)")
 	}
 
 	// Cross-parameter sanity uses the inverter's currently-loaded OF1.
@@ -146,7 +173,7 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 			return fmt.Errorf("HzStart %.2f Hz must sit ≥ %.1f Hz below OF1 trip %.2f Hz (active on %s)",
 				hzStart, freqDroopOFMarginHz, prot.OFFast, uid)
 		}
-		if err := fdw.writer.SetProtectionParam(ctx, uid, "Over_frequency_Watt_Start_set", hzStart); err != nil {
+		if err := dispatch("Over_frequency_Watt_Start_set", hzStart); err != nil {
 			return fmt.Errorf("set Over_frequency_Watt_Start_set: %w", err)
 		}
 	}
@@ -162,8 +189,20 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 		// SunSpec KOf is %Pref/Hz with sf=-1, so deci-percent. APsystems
 		// DD is the same gradient in %Pref/Hz directly. KOf/10 → DD.
 		slope := float64(kOf) / 10.0
-		if err := fdw.writer.SetProtectionParam(ctx, uid, "Over_Frequency_Watt_Slope_set", slope); err != nil {
+		if err := dispatch("Over_Frequency_Watt_Slope_set", slope); err != nil {
 			return fmt.Errorf("set Over_Frequency_Watt_Slope_set: %w", err)
+		}
+	}
+
+	if wantsRspTms {
+		hi := readField(addrOffset, regs, freqDroopBodyRspTmsHi)
+		lo := readField(addrOffset, regs, freqDroopBodyRspTmsLo)
+		// RspTms_SF=0 → wire value is whole seconds. The ECU-side writer
+		// applies the per-family scale (DS3 stores s+0.5; QS1 multiplies by
+		// DAT_6dc28); we just enqueue by long-form name.
+		secs := float64(uint32(hi)<<16 | uint32(lo))
+		if err := dispatch("Over_frequency_Watt_Delay_Time_set", secs); err != nil {
+			return fmt.Errorf("set Over_frequency_Watt_Delay_Time_set: %w", err)
 		}
 	}
 
@@ -183,7 +222,7 @@ func (fdw *FreqDroopWriter) Apply(ctx context.Context, addrOffset uint16, regs [
 			modeVal = freqDroopModeASNZS // preserve current AS/NZS mode
 		}
 		expected["CV"] = float64(modeVal)
-		if err := fdw.writer.SetProtectionParam(ctx, uid, "Over_frequency_Watt_set", float64(modeVal)); err != nil {
+		if err := dispatch("Over_frequency_Watt_set", float64(modeVal)); err != nil {
 			return fmt.Errorf("set Over_frequency_Watt_set: %w", err)
 		}
 	}

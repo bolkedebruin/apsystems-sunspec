@@ -11,7 +11,14 @@ import (
 	"github.com/bolke/ecu-sunspec/internal/source"
 )
 
+// newFreqDroopWriterFixture builds a writer pinned to the DS3 family
+// (model 0x20). Tests that need a different family use
+// newFreqDroopWriterFixtureModel instead.
 func newFreqDroopWriterFixture(t *testing.T, uid uint8, prot source.ProtectionParams, invUIDs ...string) (*FreqDroopWriter, string) {
+	return newFreqDroopWriterFixtureModel(t, uid, 0x20, prot, invUIDs...)
+}
+
+func newFreqDroopWriterFixtureModel(t *testing.T, uid uint8, model int, prot source.ProtectionParams, invUIDs ...string) (*FreqDroopWriter, string) {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "database.db")+"?mode=rwc")
@@ -31,7 +38,7 @@ func newFreqDroopWriterFixture(t *testing.T, uid uint8, prot source.ProtectionPa
 
 	invs := make([]source.Inverter, 0, len(invUIDs))
 	for _, u := range invUIDs {
-		invs = append(invs, source.Inverter{UID: u, Online: true, TypeCode: "01"})
+		invs = append(invs, source.Inverter{UID: u, Online: true, TypeCode: "01", Model: model})
 	}
 	protMap := map[string]source.ProtectionParams{}
 	for _, u := range invUIDs {
@@ -152,6 +159,21 @@ func TestFreqDroopWriter_KOfValidExtremes(t *testing.T) {
 	}
 }
 
+func TestFreqDroopWriter_RspTmsHappyPath(t *testing.T) {
+	fdw, dir := newFreqDroopWriterFixture(t, 2, activeProt(), "INV-A")
+	// RspTms = 5 seconds (uint32 hi/lo).
+	if err := fdw.Apply(context.Background(), freqDroopBodyRspTmsHi, []uint16{0, 5}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, ok := readQueuedParam(t, dir, "INV-A", "Over_frequency_Watt_Delay_Time_set")
+	if !ok {
+		t.Fatal("expected Over_frequency_Watt_Delay_Time_set row")
+	}
+	if got != 5.0 {
+		t.Errorf("delay=%v want 5.0", got)
+	}
+}
+
 func TestFreqDroopWriter_ReadOnlyFieldsRejected(t *testing.T) {
 	fdw, _ := newFreqDroopWriterFixture(t, 2, activeProt(), "INV-A")
 	cases := []struct {
@@ -187,5 +209,141 @@ func TestFreqDroopWriter_EnaWrite(t *testing.T) {
 	}
 	if got != float64(freqDroopModeDisabled) {
 		t.Errorf("disabled mode=%v want %d", got, freqDroopModeDisabled)
+	}
+}
+
+// QS1A (model 0x18) accepts CA via the per-inverter path. DbOf write
+// must land in set_protection_parameters_inverter as
+// Over_frequency_Watt_Start_set.
+func TestFreqDroopWriter_QS1A_DbOfRoutesDirect(t *testing.T) {
+	fdw, dir := newFreqDroopWriterFixtureModel(t, 2, 0x18, activeProt(), "INV-A")
+	if err := fdw.Apply(context.Background(), freqDroopBodyDbOfHi, encodeDbOf(50)); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, ok := readQueuedParam(t, dir, "INV-A", "Over_frequency_Watt_Start_set")
+	if !ok {
+		t.Fatal("expected Over_frequency_Watt_Start_set row")
+	}
+	if got < 50.49 || got > 50.51 {
+		t.Errorf("HzStart=%v want ~50.5", got)
+	}
+}
+
+// QS1A + KOf maps to Over_Frequency_Watt_Slope_set (CF), which is in
+// the gridProfile-only set. The Go writer doesn't yet implement that
+// path, so it must surface a clear error AND must not queue a row.
+func TestFreqDroopWriter_QS1A_KOfRoutesGridProfile(t *testing.T) {
+	fdw, dir := newFreqDroopWriterFixtureModel(t, 2, 0x18, activeProt(), "INV-A")
+	err := fdw.Apply(context.Background(), freqDroopBodyKOf, []uint16{400})
+	if err == nil {
+		t.Fatal("expected gridProfile-not-implemented error on QS1A slope")
+	}
+	if _, ok := readQueuedParam(t, dir, "INV-A", "Over_Frequency_Watt_Slope_set"); ok {
+		t.Error("slope row must not be queued on the direct path for QS1A")
+	}
+}
+
+// QS1A + RspTms maps to Over_frequency_Watt_Delay_Time_set (CG), also
+// gridProfile-only. Same expectations as the slope test.
+func TestFreqDroopWriter_QS1A_RspTmsRoutesGridProfile(t *testing.T) {
+	fdw, dir := newFreqDroopWriterFixtureModel(t, 2, 0x18, activeProt(), "INV-A")
+	err := fdw.Apply(context.Background(), freqDroopBodyRspTmsHi, []uint16{0, 5})
+	if err == nil {
+		t.Fatal("expected gridProfile-not-implemented error on QS1A delay")
+	}
+	if _, ok := readQueuedParam(t, dir, "INV-A", "Over_frequency_Watt_Delay_Time_set"); ok {
+		t.Error("delay row must not be queued on the direct path for QS1A")
+	}
+}
+
+// Unknown model code (e.g. brand-new family we haven't catalogued) →
+// RouteUnsupported. Don't queue silently; don't crash.
+func TestFreqDroopWriter_UnknownFamilyRejected(t *testing.T) {
+	fdw, dir := newFreqDroopWriterFixtureModel(t, 2, 999, activeProt(), "INV-A")
+	if err := fdw.Apply(context.Background(), freqDroopBodyDbOfHi, encodeDbOf(50)); err == nil {
+		t.Error("expected error for unknown family")
+	}
+	if _, ok := readQueuedParam(t, dir, "INV-A", "Over_frequency_Watt_Start_set"); ok {
+		t.Error("must not queue for unknown family")
+	}
+}
+
+// routeFor table-driven sanity check — pin the routing decisions the
+// rest of the writer relies on so a careless edit can't silently
+// reroute them.
+func TestRouteFor(t *testing.T) {
+	cases := []struct {
+		family InverterFamily
+		param  string
+		want   WriteRoute
+	}{
+		{FamilyDS3, "Over_frequency_Watt_recover_High_set", RouteDirect},
+		{FamilyDS3, "Over_Frequency_Watt_Slope_set", RouteDirect},
+		{FamilyQS1A, "Over_frequency_Watt_Start_set", RouteDirect},
+		{FamilyQS1A, "Over_frequency_Watt_High_set", RouteDirect},
+		{FamilyQS1A, "Delt_P_Over_HF", RouteDirect},
+		{FamilyQS1A, "Over_frequency_Watt_recover_High_set", RouteUnsupported},
+		{FamilyQS1A, "Over_Frequency_Watt_Slope_set", RouteGridProfile},
+		{FamilyQS1A, "Over_frequency_Watt_Delay_Time_set", RouteGridProfile},
+		{FamilyUnknown, "anything", RouteUnsupported},
+	}
+	for _, tc := range cases {
+		got := routeFor(tc.family, tc.param)
+		if got != tc.want {
+			t.Errorf("routeFor(%d, %q) = %d, want %d", tc.family, tc.param, got, tc.want)
+		}
+	}
+}
+
+// freqWattCurvePoints documents which Model 711 registers map to which
+// APsystems long-form name. Pin the contents so the writer's inline
+// DbOf path stays consistent with the table.
+func TestFreqWattCurvePoints_DbOfMapping(t *testing.T) {
+	var found *FreqWattCurvePoint
+	for i := range freqWattCurvePoints {
+		cp := &freqWattCurvePoints[i]
+		if cp.Body == freqDroopBodyDbOfHi && cp.BodyLo == freqDroopBodyDbOfLo {
+			found = cp
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected a curve-point entry covering DbOf body[12..13]")
+	}
+	if found.Aps != "Over_frequency_Watt_Start_set" {
+		t.Errorf("DbOf maps to %q, want Over_frequency_Watt_Start_set", found.Aps)
+	}
+	if found.Code != "CA" {
+		t.Errorf("DbOf code = %q, want CA", found.Code)
+	}
+	// Decode 50 cHz → 50.5 Hz, matching the wire encoding the inline
+	// DbOf branch uses.
+	if got := found.Decode(0, 50); got < 50.49 || got > 50.51 {
+		t.Errorf("Decode(0,50) = %v, want ~50.5", got)
+	}
+}
+
+func TestFamilyForModel(t *testing.T) {
+	cases := []struct {
+		code int
+		want InverterFamily
+	}{
+		{0x18, FamilyQS1A},
+		{8, FamilyQS1A},
+		{0x20, FamilyDS3},
+		{0x36, FamilyDS3},
+		{0x29, FamilyQT2},
+		{0x32, FamilyQT2},
+		{7, FamilyYC600},
+		{0x17, FamilyYC600},
+		{5, FamilyYC1000},
+		{0, FamilyUnknown},
+		{999, FamilyUnknown},
+	}
+	for _, tc := range cases {
+		got := familyForModel(tc.code)
+		if got != tc.want {
+			t.Errorf("familyForModel(%d) = %d, want %d", tc.code, got, tc.want)
+		}
 	}
 }
