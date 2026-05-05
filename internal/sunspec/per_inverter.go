@@ -121,13 +121,7 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	bank.put16(scaleFactor(0))
 
 	// St
-	st := StOff
-	if inv.Online && inv.ACPowerW > 0 {
-		st = StMPPT
-	} else if inv.Online {
-		st = StStandby
-	}
-	bank.put16(st)
+	bank.put16(inverterOperatingState(inv.Online, inv.ACPowerW))
 	bank.put16(0) // StVnd
 
 	// Evt1 = SunSpec-standard event flags translated from this inverter's

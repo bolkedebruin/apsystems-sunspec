@@ -132,6 +132,36 @@ const (
 	StStandby uint16 = 8
 )
 
+// aggregateOperatingState maps online count + system power to the St
+// enum used by Models 101/103/111/113. The online count is the
+// authoritative gate: SunSpec semantics treat StSleep as "off but will
+// start producing again", which is exactly what microinverters do at
+// night. Power is only meaningful when at least one inverter is
+// online; otherwise it's a stale historical sample.
+func aggregateOperatingState(onlineCount int, systemPowerW int32) uint16 {
+	if onlineCount == 0 {
+		return StSleep
+	}
+	if systemPowerW > 0 {
+		return StMPPT
+	}
+	return StStandby
+}
+
+// inverterOperatingState is the per-inverter equivalent of
+// aggregateOperatingState. An offline inverter is StSleep, an online
+// inverter producing power is StMPPT, and an online inverter idle is
+// StStandby.
+func inverterOperatingState(online bool, acPowerW int) uint16 {
+	if !online {
+		return StSleep
+	}
+	if acPowerW > 0 {
+		return StMPPT
+	}
+	return StStandby
+}
+
 // Bank is a flat slice of holding registers starting at BaseRegister.
 // Length is the total register count (Common 70 + Inverter 52 + End 2 = 124).
 type Bank struct {
@@ -254,13 +284,12 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	bank.put16(notImplS16) // TmpOt
 	bank.put16(scaleFactor(0))
 
-	// St — operating state.
-	st := StOff
-	if s.SystemPowerW > 0 {
-		st = StMPPT
-	} else if s.InverterOnlineCount > 0 {
-		st = StStandby
-	}
+	// St — operating state. Online count is the gate, not power: at night
+	// each_system_power's most recent row is stale (last sample logged
+	// before sundown) so a SystemPowerW>0 read can persist long after the
+	// micros went to sleep. Reporting MPPT in that window is wrong and
+	// surfaces in Victron as "Running (MPPT)" overnight.
+	st := aggregateOperatingState(s.InverterOnlineCount, s.SystemPowerW)
 	bank.put16(st)
 	bank.put16(0) // StVnd (vendor state)
 

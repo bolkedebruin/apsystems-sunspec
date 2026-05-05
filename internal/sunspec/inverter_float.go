@@ -131,13 +131,9 @@ func emitInverterFloat(bank *Bank, s source.Snapshot, phase PhaseMode) {
 	bank.putFloat32NotImpl() // TmpTrns
 	bank.putFloat32NotImpl() // TmpOt
 
-	// St — operating state.
-	st := StOff
-	if s.SystemPowerW > 0 {
-		st = StMPPT
-	} else if s.InverterOnlineCount > 0 {
-		st = StStandby
-	}
+	// St — operating state. Same gating as Model 101 — see
+	// aggregateOperatingState for the rationale.
+	st := aggregateOperatingState(s.InverterOnlineCount, s.SystemPowerW)
 	bank.put16(st)
 	bank.put16(0) // StVnd
 
@@ -202,13 +198,7 @@ func emitInverterFloatPerInverter(bank *Bank, inv source.Inverter) {
 	bank.putFloat32NotImpl() // TmpTrns
 	bank.putFloat32NotImpl() // TmpOt
 
-	st := StOff
-	if inv.Online && inv.ACPowerW > 0 {
-		st = StMPPT
-	} else if inv.Online {
-		st = StStandby
-	}
-	bank.put16(st)
+	bank.put16(inverterOperatingState(inv.Online, inv.ACPowerW))
 	bank.put16(0) // StVnd
 
 	bank.putAcc32(uint64(MapAPsystemsToSunSpecEvt1(inv.EventBits)))

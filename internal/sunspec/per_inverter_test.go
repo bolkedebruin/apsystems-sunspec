@@ -138,13 +138,13 @@ func TestEncodePerInverter_MPPTHasOnlyThisInverterPanels(t *testing.T) {
 	}
 }
 
-func TestEncodePerInverter_OfflineHasStOff(t *testing.T) {
+func TestEncodePerInverter_OfflineHasStSleep(t *testing.T) {
 	inv := sampleInverter()
 	inv.Online = false
 	bank := EncodePerInverter(inv, "ECU", 2, Options{})
 	invBase, _ := findModel(bank, InverterModelSinglePhase)
 	body := invBase + 2
-	if got := bank.At(body + 36); got != StOff {
-		t.Errorf("offline St=%d want StOff", got)
+	if got := bank.At(body + 36); got != StSleep {
+		t.Errorf("offline St=%d want StSleep", got)
 	}
 }

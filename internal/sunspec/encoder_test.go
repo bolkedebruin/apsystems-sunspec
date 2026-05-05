@@ -188,18 +188,23 @@ func TestEncode_InverterModelKeyFields(t *testing.T) {
 	}
 }
 
-func TestEncode_OffStateWhenNoPower(t *testing.T) {
+func TestEncode_SleepStateWhenNoInvertersOnline(t *testing.T) {
+	// At night the params file lists every inverter as online=0 and
+	// each_system_power has gone stale. Reporting StMPPT off the stale
+	// power sample would surface as "Running (MPPT)" in Victron; the
+	// online count must gate the state instead.
 	s := sampleSnapshot()
-	s.SystemPowerW = 0
 	s.InverterOnlineCount = 0
+	// Leave SystemPowerW at the sample's nonzero value to model the
+	// stale-row case.
 	bank := Encode(s, Options{})
 	invBase, ok := findModel(bank, InverterModelSinglePhase)
 	if !ok {
 		t.Fatal("Inverter Model 101 missing")
 	}
 	body := invBase + 2
-	if got := bank.At(body + 36); got != StOff {
-		t.Errorf("St=%d want StOff(%d)", got, StOff)
+	if got := bank.At(body + 36); got != StSleep {
+		t.Errorf("St=%d want StSleep(%d)", got, StSleep)
 	}
 }
 
@@ -215,6 +220,48 @@ func TestEncode_StandbyAtNight(t *testing.T) {
 	body := invBase + 2
 	if got := bank.At(body + 36); got != StStandby {
 		t.Errorf("St=%d want StStandby(%d)", got, StStandby)
+	}
+}
+
+func TestAggregateOperatingState(t *testing.T) {
+	cases := []struct {
+		name        string
+		online      int
+		systemPower int32
+		want        uint16
+	}{
+		{"no inverters, stale positive power", 0, 1234, StSleep},
+		{"no inverters, zero power", 0, 0, StSleep},
+		{"inverters online, producing", 3, 1234, StMPPT},
+		{"inverters online, idle", 3, 0, StStandby},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := aggregateOperatingState(c.online, c.systemPower); got != c.want {
+				t.Errorf("got=%d want=%d", got, c.want)
+			}
+		})
+	}
+}
+
+func TestInverterOperatingState(t *testing.T) {
+	cases := []struct {
+		name    string
+		online  bool
+		acPower int
+		want    uint16
+	}{
+		{"offline", false, 0, StSleep},
+		{"offline with stale power", false, 250, StSleep},
+		{"online producing", true, 250, StMPPT},
+		{"online idle", true, 0, StStandby},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := inverterOperatingState(c.online, c.acPower); got != c.want {
+				t.Errorf("got=%d want=%d", got, c.want)
+			}
+		})
 	}
 }
 
