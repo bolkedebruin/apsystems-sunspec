@@ -90,14 +90,24 @@ if [ -d "$SRC/dropbear" ]; then
     fi
 
     if [ -f "$SRC/dropbear/authorized_keys" ]; then
-        mkdir -p /root/.ssh
-        chmod 700 /root/.ssh
+        # Resolve root's actual home dir from /etc/passwd. APsystems
+        # firmware sets root's home to /home/root (not /root) and that
+        # directory ships owned by uid 1001 — dropbear refuses to read
+        # authorized_keys from a home dir not owned by user-or-root.
+        ROOT_HOME=$(awk -F: '$1=="root"{print $6; exit}' /etc/passwd)
+        [ -n "$ROOT_HOME" ] || ROOT_HOME=/root
+        chown root:root "$ROOT_HOME" 2>/dev/null || true
+        mkdir -p "$ROOT_HOME/.ssh"
+        chown root:root "$ROOT_HOME/.ssh"
+        chmod 700 "$ROOT_HOME/.ssh"
         # Append (don't overwrite) and de-duplicate.
-        cat "$SRC/dropbear/authorized_keys" >> /root/.ssh/authorized_keys
-        awk '!seen[$0]++' /root/.ssh/authorized_keys > /tmp/.ak.tmp \
-            && mv /tmp/.ak.tmp /root/.ssh/authorized_keys
-        chmod 600 /root/.ssh/authorized_keys
-        echo "+ /root/.ssh/authorized_keys"
+        touch "$ROOT_HOME/.ssh/authorized_keys"
+        cat "$SRC/dropbear/authorized_keys" >> "$ROOT_HOME/.ssh/authorized_keys"
+        awk '!seen[$0]++' "$ROOT_HOME/.ssh/authorized_keys" > /tmp/.ak.tmp \
+            && mv /tmp/.ak.tmp "$ROOT_HOME/.ssh/authorized_keys"
+        chown root:root "$ROOT_HOME/.ssh/authorized_keys"
+        chmod 600 "$ROOT_HOME/.ssh/authorized_keys"
+        echo "+ $ROOT_HOME/.ssh/authorized_keys"
     fi
 
     if [ -f "$SRC/etc-init-d/S98-dropbear" ]; then
