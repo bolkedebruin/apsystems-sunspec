@@ -77,11 +77,11 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 		s.SystemMaxPowerW = int32(v)
 	}
 
-	// Energy + system power from historical.db.
+	// Energy aggregates from historical.db. Energy fields are monotonic
+	// (or fixed-window monotonic) so freezing at sundown is correct;
+	// SystemPowerW is recomputed below from live params telemetry, not
+	// from each_system_power, because that table goes stale at night.
 	if b.DB != nil {
-		if w, err := b.DB.LatestSystemPowerW(ctx); err == nil {
-			s.SystemPowerW = w
-		}
 		if kwh, err := b.DB.LifetimeEnergyKWh(ctx); err == nil {
 			s.LifetimeEnergyWh = uint64(kwh*1000 + 0.5)
 		}
@@ -186,19 +186,31 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 		s.MaxTemperatureC = tempMax
 	}
 
-	// If params file ships a fresher per-inverter total than each_system_power,
-	// prefer it — each_system_power has 5-minute granularity.
-	if online > 0 {
-		var sum int
-		for _, inv := range invs {
-			if inv.Online {
-				sum += inv.ACPowerW
-			}
-		}
-		if sum > 0 {
-			s.SystemPowerW = int32(sum)
-		}
-	}
+	// SystemPowerW is the live sum of online inverters' AC power. This
+	// is the ONLY source for the field — we do not consult
+	// each_system_power, because main.exe stops appending rows when the
+	// inverters go quiet, so its latest row freezes at the pre-sunset
+	// value. The pre-fix builder used `each_system_power` as the
+	// default and only overrode when the live sum was non-zero, which
+	// meant a dusk window (online=N, every inverter producing 0 W) kept
+	// the stale row's reading and the encoder reported phantom StMPPT
+	// + phantom watts to Victron well past sundown. Using the live sum
+	// even when it's zero fixes the state and the W field together.
+	s.SystemPowerW = liveSystemPowerW(invs)
 
 	return s, nil
+}
+
+// liveSystemPowerW returns the current sum of online inverters' AC
+// power, used as the authoritative source for Snapshot.SystemPowerW.
+// Offline inverters never contribute, regardless of any stale
+// ACPowerW reading their last params row may carry.
+func liveSystemPowerW(invs []Inverter) int32 {
+	var sum int
+	for _, inv := range invs {
+		if inv.Online {
+			sum += inv.ACPowerW
+		}
+	}
+	return int32(sum)
 }
