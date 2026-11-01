@@ -211,20 +211,8 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 		bank.put16(uint16(i + 1))
 		bank.putString(panelLabel(inv, i), 8)
 
-		var dca uint16 = notImplU16
-		if inv.ACVoltageV > 0 && p >= 0 {
-			amps10 := float64(p) / float64(inv.ACVoltageV) * 10
-			if amps10 < 65535 {
-				dca = uint16(amps10 + 0.5)
-			}
-		}
-		bank.put16(dca)
-
-		dcv := uint16(notImplU16)
-		if inv.ACVoltageV > 0 && inv.ACVoltageV < 65535 {
-			dcv = uint16(inv.ACVoltageV)
-		}
-		bank.put16(dcv)
+		dca, dcv := panelDCU16(inv, i, p)
+		bank.put16(dca, dcv)
 
 		dcw := uint16(notImplU16)
 		if p >= 0 && p < 65535 {

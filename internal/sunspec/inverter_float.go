@@ -228,96 +228,76 @@ func emitInverterFloatPerInverter(bank *Bank, inv source.Inverter) {
 	bank.putAcc32(uint64(notImplU32))
 }
 
-// emitDCDataFloat appends a Model 114 (DC Data float) section for the
-// aggregate snapshot. The 8-channel array is filled by walking online
-// inverters and assigning their panels to consecutive channels until the
-// 8-channel array is full; remaining channels are NaN. APsystems doesn't
-// publish per-panel DC voltage or current — we derive DCV from the inverter's
-// AC voltage stand-in and DCA from W/V (same approach as Model 160).
-//
-// DCW carries true per-panel power.
-func emitDCDataFloat(bank *Bank, s source.Snapshot) {
-	bank.put16(DCDataFloatModelID, DCDataFloatBodyLen)
+// dcChannel is one Model 114 channel. ok is false when the ECU has no DC
+// voltage for it: DCV and DCA are then NaN, DCW stays real.
+type dcChannel struct {
+	dcv, dca float64
+	ok       bool
+	dcw      int
+}
 
-	type ch struct{ dcv, dca, dcw float32 }
-	channels := make([]ch, 0, DCDataFloatChannels)
-	for _, inv := range s.Inverters {
-		if !inv.Online {
-			continue
-		}
-		powers := inv.PanelPowers()
-		for _, p := range powers {
-			if len(channels) >= DCDataFloatChannels {
-				break
-			}
-			var dcv, dca float32
-			if inv.ACVoltageV > 0 {
-				dcv = float32(inv.ACVoltageV)
-				dca = float32(p) / dcv
-			}
-			channels = append(channels, ch{dcv: dcv, dca: dca, dcw: float32(p)})
-		}
+// appendDCChannels adds one channel per panel of inv, up to the 8-channel
+// Model 114 capacity.
+func appendDCChannels(channels []dcChannel, inv source.Inverter) []dcChannel {
+	for i, p := range inv.PanelPowers() {
 		if len(channels) >= DCDataFloatChannels {
 			break
 		}
+		v, a, ok := panelDC(inv, i, p)
+		channels = append(channels, dcChannel{dcv: v, dca: a, ok: ok, dcw: p})
 	}
+	return channels
+}
 
-	// DCV1..DCV8
-	for i := 0; i < DCDataFloatChannels; i++ {
-		if i < len(channels) {
-			bank.putFloat32(channels[i].dcv)
-		} else {
-			bank.putFloat32NotImpl()
+// emitDCDataFloat appends a Model 114 (DC Data float) section for the
+// aggregate snapshot. The 8-channel array is filled by walking online
+// inverters and assigning their panels to consecutive channels until the
+// 8-channel array is full; remaining channels are NaN. DCV is the
+// per-panel DC voltage from /tmp/parameters.conf and DCA is derived from
+// W/V (same approach as Model 160); both are NaN when the ECU has no DC
+// voltage for the panel.
+//
+// DCW carries true per-panel power.
+func emitDCDataFloat(bank *Bank, s source.Snapshot) {
+	var channels []dcChannel
+	for _, inv := range s.Inverters {
+		if inv.Online {
+			channels = appendDCChannels(channels, inv)
 		}
 	}
-	// DCA1..DCA8
-	for i := 0; i < DCDataFloatChannels; i++ {
-		if i < len(channels) {
-			bank.putFloat32(channels[i].dca)
-		} else {
-			bank.putFloat32NotImpl()
-		}
-	}
-	// DCW1..DCW8
-	for i := 0; i < DCDataFloatChannels; i++ {
-		if i < len(channels) {
-			bank.putFloat32(channels[i].dcw)
-		} else {
-			bank.putFloat32NotImpl()
-		}
-	}
+	emitDCChannels(bank, channels)
 }
 
 // emitDCDataFloatPerInverter appends a Model 114 section for one inverter.
 // Channels 1..N (where N = inverter's panel count) carry the panels; the rest
 // are NaN.
 func emitDCDataFloatPerInverter(bank *Bank, inv source.Inverter) {
+	emitDCChannels(bank, appendDCChannels(nil, inv))
+}
+
+func emitDCChannels(bank *Bank, channels []dcChannel) {
 	bank.put16(DCDataFloatModelID, DCDataFloatBodyLen)
 
-	powers := inv.PanelPowers()
-	dcv := float32(inv.ACVoltageV)
-	hasDCV := dcv > 0
-
-	// DCV1..8
+	// DCV1..DCV8
 	for i := 0; i < DCDataFloatChannels; i++ {
-		if i < len(powers) && hasDCV {
-			bank.putFloat32(dcv)
+		if i < len(channels) && channels[i].ok {
+			bank.putFloat32(float32(channels[i].dcv))
 		} else {
 			bank.putFloat32NotImpl()
 		}
 	}
-	// DCA1..8 — derived
+	// DCA1..DCA8 — derived
 	for i := 0; i < DCDataFloatChannels; i++ {
-		if i < len(powers) && hasDCV {
-			bank.putFloat32(float32(powers[i]) / dcv)
+		if i < len(channels) && channels[i].ok {
+			bank.putFloat32(float32(channels[i].dca))
 		} else {
 			bank.putFloat32NotImpl()
 		}
 	}
-	// DCW1..8 — actual
+	// DCW1..DCW8 — actual
 	for i := 0; i < DCDataFloatChannels; i++ {
-		if i < len(powers) {
-			bank.putFloat32(float32(powers[i]))
+		if i < len(channels) {
+			bank.putFloat32(float32(channels[i].dcw))
 		} else {
 			bank.putFloat32NotImpl()
 		}

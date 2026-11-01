@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -102,6 +103,10 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 		return s, fmt.Errorf("params: %w", err)
 	}
 
+	// Per-channel DC voltage from /tmp/parameters.conf, written by main.exe
+	// alongside parameters_app.conf. Optional.
+	dcByUID := LoadChannelDCFile(filepath.Join(filepath.Dir(b.ParamsFile), "parameters.conf"))
+
 	// Join SQLite metadata onto inverters when available.
 	var sigByUID map[string]int
 	var limByUID map[string]int
@@ -152,6 +157,9 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 		}
 		if bits, ok := evByUID[inv.UID]; ok {
 			inv.EventBits = bits
+		}
+		if inv.Online {
+			inv.PanelDCVoltageV = dcByUID[inv.UID]
 		}
 		if inv.Online {
 			online++

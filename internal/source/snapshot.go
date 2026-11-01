@@ -149,6 +149,10 @@ type Inverter struct {
 	LimitedPowerW  int     // per-panel curtailment cap from power.limitedpower (W)
 	RawTail        []int   // params columns 4..N as integers
 
+	// PanelDCVoltageV holds per-channel DC input voltage from
+	// /tmp/parameters.conf; 0 (or a short slice) means unknown.
+	PanelDCVoltageV []int
+
 	// EventBits holds the 86-bit event bitstring from database.db.Event,
 	// packed LSB-first into uint32 slots: [Evt1, Evt2, EvtVnd1, EvtVnd2].
 	// The semantics of each bit are not publicly documented by APsystems —
