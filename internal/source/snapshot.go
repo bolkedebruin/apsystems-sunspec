@@ -172,10 +172,25 @@ func (inv Inverter) PanelCount() int {
 	switch inv.TypeCode {
 	case "01", "04":
 		return 2
-	case "03":
+	case "02", "03":
 		return 4
 	}
 	return 0
+}
+
+// ThreePhase reports whether the inverter feeds all three grid phases
+// itself (YC1000) rather than a single phase picked by id.phase.
+func (inv Inverter) ThreePhase() bool {
+	return inv.TypeCode == "02"
+}
+
+// LineToLineV returns the measured V_AB, V_BC, V_CA for three-phase
+// inverters; zeros when the type doesn't report them or RawTail is short.
+func (inv Inverter) LineToLineV() [3]int {
+	if inv.TypeCode == "02" && len(inv.RawTail) >= 8 {
+		return [3]int{inv.RawTail[2], inv.RawTail[4], inv.RawTail[6]}
+	}
+	return [3]int{}
 }
 
 // PanelPowers returns one watts value per panel; len(result)==PanelCount().
@@ -185,6 +200,7 @@ func (inv Inverter) PanelCount() int {
 //
 //	type 01/04: [tmp, P0, V_ac, P1, V_ac]
 //	type 03   : [tmp, P0, V_ac, P1, P2, P3]
+//	type 02   : [tmp, P0, V_AB, P1, V_BC, P2, V_CA, P3]
 func (inv Inverter) PanelPowers() []int {
 	if !inv.Online {
 		return nil
@@ -197,6 +213,10 @@ func (inv Inverter) PanelPowers() []int {
 	case "03":
 		if len(inv.RawTail) >= 6 {
 			return []int{inv.RawTail[1], inv.RawTail[3], inv.RawTail[4], inv.RawTail[5]}
+		}
+	case "02":
+		if len(inv.RawTail) >= 8 {
+			return []int{inv.RawTail[1], inv.RawTail[3], inv.RawTail[5], inv.RawTail[7]}
 		}
 	}
 	return nil
@@ -281,6 +301,8 @@ func (inv Inverter) NameplateW() int {
 	switch inv.TypeCode {
 	case "01":
 		return 730
+	case "02":
+		return 900
 	case "03":
 		return 1460
 	case "04":

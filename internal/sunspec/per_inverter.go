@@ -9,7 +9,8 @@ import (
 // EncodePerInverter produces a self-contained SunSpec bank for a single
 // microinverter. Layout is the SunSpec equivalent of "one Fronius behind the
 // Datalogger" — Common Model identifies the microinverter, the Inverter Model
-// (101, single-phase) exposes its electrical state, and Multi-MPPT (160) lists
+// (101 single-phase, 103 for the three-phase YC1000) exposes its electrical
+// state, and Multi-MPPT (160) lists
 // its panels.
 //
 // The bank is intended to be served at a per-inverter Modbus unit ID, so a
@@ -41,10 +42,17 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	bank.put16(unitID)                               // DA — Modbus unit address
 	bank.put16(0)                                    // pad
 
-	// --- Inverter Model 101 (single-phase) ---
-	bank.put16(InverterModelSinglePhase, InverterModelBodyLen)
+	// --- Inverter Model 101 (single-phase) or 103 (three-phase YC1000) ---
+	phases := 1
+	modelID := InverterModelSinglePhase
+	if inv.ThreePhase() {
+		phases = 3
+		modelID = InverterModelThreePhase
+	}
+	bank.put16(modelID, InverterModelBodyLen)
 
-	// A / per-phase A — derive from W/V; 0.1 A units (ASF=-1)
+	// A / per-phase A — derive from W/V; 0.1 A units (ASF=-1). Three-phase
+	// output is balanced, so each phase carries a third of the total.
 	var a uint16
 	if inv.ACVoltageV > 0 && inv.ACPowerW >= 0 {
 		amps10 := float64(inv.ACPowerW) / float64(inv.ACVoltageV) * 10
@@ -52,19 +60,27 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 			a = uint16(amps10 + 0.5)
 		}
 	}
+	aph := a
+	if phases == 3 && inv.ACVoltageV > 0 && inv.ACPowerW >= 0 {
+		aph = uint16(float64(inv.ACPowerW)/3/float64(inv.ACVoltageV)*10 + 0.5)
+	}
 	bank.put16(a)
-	bank.put16(a, notImplU16, notImplU16) // AphA, AphB, AphC
-	bank.put16(scaleFactor(-1))           // ASF
+	bank.put16(aph, phaseValueU16(aph, 1, phases), phaseValueU16(aph, 2, phases)) // AphA, AphB, AphC
+	bank.put16(scaleFactor(-1))                                                   // ASF
 
-	// PPVphAB/BC/CA — line-line voltages, not measured
-	bank.put16(notImplU16, notImplU16, notImplU16)
+	// PPVphAB/BC/CA — line-line voltages, measured by three-phase inverters only
+	if ll := inv.LineToLineV(); ll[0] > 0 {
+		bank.put16(uint16(ll[0]), uint16(ll[1]), uint16(ll[2]))
+	} else {
+		bank.put16(notImplU16, notImplU16, notImplU16)
+	}
 
-	// PhVphA — line-neutral, B/C unimplemented for single-phase
+	// PhVphA/B/C — line-neutral, unused phases unimplemented
 	v := uint16(0)
 	if inv.ACVoltageV > 0 && inv.ACVoltageV < 65535 {
 		v = uint16(inv.ACVoltageV)
 	}
-	bank.put16(v, notImplU16, notImplU16)
+	bank.put16(v, phaseValueU16(v, 1, phases), phaseValueU16(v, 2, phases))
 	bank.put16(scaleFactor(0)) // VSF
 
 	// W / WSF
@@ -134,7 +150,7 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	bank.putAcc32(uint64(inv.EventBits[2]))                         // EvtVnd3 — raw 64-95
 	bank.putAcc32(uint64(notImplU32))                               // EvtVnd4 — unused
 
-	// --- Inverter Float Model 111 — same field set as 101, float32 encoding ---
+	// --- Inverter Float Model 111/113 — same field set as 101/103, float32 encoding ---
 	emitInverterFloatPerInverter(&bank, inv)
 
 	// --- Model 114 — DC Data float (per-panel) ---

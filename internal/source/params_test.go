@@ -87,3 +87,69 @@ func TestLoadParamsFile_Fixture(t *testing.T) {
 		}
 	}
 }
+
+// Type 02 (YC1000, 4-channel three-phase) sampled live on an ECU-C
+// (fw C1.2.27A): tail = [temp_raw, P0, V_AB, P1, V_BC, P2, V_CA, P3].
+// The three voltages are line-to-line (~400 V grid); ACVoltageV is the
+// line-neutral equivalent so it lines up with the 230 V-based protection
+// thresholds and the single-phase inverters.
+func TestParseParamsApp_TypeTwo(t *testing.T) {
+	in := strings.NewReader(`01,1,20261101151000
+901500081373,1,02,50.0,129,187,406,194,407,184,410,186
+`)
+	_, invs, err := ParseParamsApp(in)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	inv := invs[0]
+	if inv.TemperatureC != 29 {
+		t.Errorf("tempC=%d want 29", inv.TemperatureC)
+	}
+	const wantW = 187 + 194 + 184 + 186
+	if inv.ACPowerW != wantW {
+		t.Errorf("ACPowerW=%d want %d (sum of 4 channel powers)", inv.ACPowerW, wantW)
+	}
+	// mean(406, 407, 410) / √3 = 235.4 → 235 V.
+	if inv.ACVoltageV != 235 {
+		t.Errorf("ACVoltageV=%d want 235 (line-neutral)", inv.ACVoltageV)
+	}
+	if got := inv.PanelCount(); got != 4 {
+		t.Errorf("PanelCount=%d want 4", got)
+	}
+	if got, want := inv.PanelPowers(), []int{187, 194, 184, 186}; !equalInts(got, want) {
+		t.Errorf("PanelPowers=%v want %v", got, want)
+	}
+	if got := inv.NameplateW(); got != 900 {
+		t.Errorf("NameplateW=%d want 900", got)
+	}
+}
+
+func equalInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestInverter_TypeTwoIsThreePhaseWithLineVoltages(t *testing.T) {
+	inv := Inverter{TypeCode: "02", RawTail: []int{129, 187, 406, 194, 407, 184, 410, 186}}
+	if !inv.ThreePhase() {
+		t.Error("YC1000 (type 02) should be three-phase")
+	}
+	if got, want := inv.LineToLineV(), [3]int{406, 407, 410}; got != want {
+		t.Errorf("LineToLineV=%v want %v", got, want)
+	}
+
+	ds3 := Inverter{TypeCode: "01", RawTail: []int{131, 247, 240, 221, 240}}
+	if ds3.ThreePhase() {
+		t.Error("DS3 (type 01) should not be three-phase")
+	}
+	if got := ds3.LineToLineV(); got != [3]int{} {
+		t.Errorf("DS3 LineToLineV=%v want zeros", got)
+	}
+}

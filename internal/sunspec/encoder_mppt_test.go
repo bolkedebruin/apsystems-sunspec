@@ -152,3 +152,24 @@ func TestEncode_Model160_PanelCountFromMixedTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestEncode_Model160_YC1000HasFourModules(t *testing.T) {
+	s := source.Snapshot{
+		Inverters: []source.Inverter{{
+			UID:      "901500081373",
+			Online:   true,
+			TypeCode: "02",
+			RawTail:  []int{129, 187, 406, 194, 407, 184, 410, 186},
+		}},
+		InverterOnlineCount: 1,
+	}
+	bank := Encode(s, Options{})
+
+	base, ok := findModel(bank, MultiMPPTModelID)
+	if !ok {
+		t.Fatal("Model 160 missing for an online YC1000")
+	}
+	if got, want := bank.At(base+1), MultiMPPTFixedBlockLen+4*MultiMPPTPerModuleLen; got != want {
+		t.Errorf("Model 160 L=%d want %d (4 modules)", got, want)
+	}
+}

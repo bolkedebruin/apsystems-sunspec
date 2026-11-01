@@ -235,8 +235,13 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	)
 	bank.put16(scaleFactor(-1)) // ASF: 0.1 A
 
-	// PPVphAB/BC/CA — line-line voltages: not measured.
-	bank.put16(notImplU16, notImplU16, notImplU16)
+	// PPVphAB/BC/CA — line-line voltages, only measured by three-phase
+	// inverters (YC1000).
+	if ll, ok := aggregateLineToLineV(s); ok && phases == 3 {
+		bank.put16(uint16(ll[0]), uint16(ll[1]), uint16(ll[2]))
+	} else {
+		bank.put16(notImplU16, notImplU16, notImplU16)
+	}
 	// PhVphA/B/C — line-neutral voltages, scaled ×1; pad unused phases.
 	v := uint16(s.GridVoltageV + 0.5)
 	bank.put16(
@@ -473,6 +478,9 @@ func detectPhase(s source.Snapshot) PhaseMode {
 		if !inv.Online {
 			continue
 		}
+		if inv.ThreePhase() {
+			return PhaseThree
+		}
 		ph := inv.Phase
 		if ph < 1 || ph > 3 {
 			ph = 1
@@ -625,6 +633,14 @@ func derivePhaseCurrents(s source.Snapshot) (total uint16, perPhase [3]uint16) {
 		if !inv.Online {
 			continue
 		}
+		if inv.ThreePhase() {
+			// Balanced output: a third of the power on each phase.
+			for i := range phaseW {
+				phaseW[i] += inv.ACPowerW / 3
+			}
+			phaseW[0] += inv.ACPowerW % 3
+			continue
+		}
 		ph := inv.Phase - 1
 		if ph < 0 || ph > 2 {
 			ph = 0
@@ -640,4 +656,18 @@ func derivePhaseCurrents(s source.Snapshot) (total uint16, perPhase [3]uint16) {
 	}
 	total = uint16(float64(sum)/v*10 + 0.5)
 	return total, perPhase
+}
+
+// aggregateLineToLineV returns the line-to-line voltages of the first
+// online three-phase inverter. ok is false when none reports them.
+func aggregateLineToLineV(s source.Snapshot) (ll [3]int, ok bool) {
+	for _, inv := range s.Inverters {
+		if !inv.Online || !inv.ThreePhase() {
+			continue
+		}
+		if ll = inv.LineToLineV(); ll[0] > 0 {
+			return ll, true
+		}
+	}
+	return ll, false
 }
