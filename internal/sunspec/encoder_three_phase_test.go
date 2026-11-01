@@ -101,6 +101,20 @@ func TestEncodePerInverter_YC1000IsThreePhase(t *testing.T) {
 	checkThreePhaseFloat(t, bank)
 }
 
+// At night the three-phase inverter is offline (params row "<UID>,0,02").
+// The aggregate must stay Model 103 so a client detecting the device
+// then (GX reboot, HA setup) doesn't lock onto single-phase.
+func TestEncode_OfflineThreePhaseKeepsModel103(t *testing.T) {
+	inv := source.Inverter{UID: "901500081373", Online: false, TypeCode: "02", Model: 41}
+	bank := Encode(source.Snapshot{Inverters: []source.Inverter{inv}}, Options{})
+	if got := bank.At(BaseRegister + 70); got != InverterModelThreePhase {
+		t.Errorf("model=%d want 103 with the three-phase inverter offline", got)
+	}
+	if _, ok := findModel(bank, InverterModelThreePhaseFloat); !ok {
+		t.Error("Model 113 missing with the three-phase inverter offline")
+	}
+}
+
 // Single-phase micros spread across phases keep the existing behavior:
 // no line-to-line voltages, all of an inverter's power on its own phase.
 func TestEncode_SinglePhaseMicrosKeepNoLineVoltages(t *testing.T) {

@@ -475,11 +475,14 @@ func phaseValueU16(v uint16, idx, phasesUsed int) uint16 {
 func detectPhase(s source.Snapshot) PhaseMode {
 	var seen [4]bool
 	for _, inv := range s.Inverters {
-		if !inv.Online {
-			continue
-		}
+		// A three-phase inverter fixes the model even while offline, so
+		// the bank doesn't flip to 101 at night under a client that
+		// detects the device then.
 		if inv.ThreePhase() {
 			return PhaseThree
+		}
+		if !inv.Online {
+			continue
 		}
 		ph := inv.Phase
 		if ph < 1 || ph > 3 {
