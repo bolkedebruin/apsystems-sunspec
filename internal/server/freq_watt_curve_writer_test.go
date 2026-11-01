@@ -177,3 +177,55 @@ func TestFreqWattCurveWriter_SingleHzPerWrite(t *testing.T) {
 		t.Errorf("Hz4 round-trip: ok=%v got=%v want 52.0", ok, got)
 	}
 }
+
+// Over-frequency-only curve (DH/DI = 655.35, "not supported"): Model 134
+// publishes CB/CC as points 1/2, so writes must follow that layout.
+func ofOnlyProt() source.ProtectionParams {
+	p := curveProt()
+	p.OFCurveUFLow, p.OFCurveUFHigh = 655.35, 655.35
+	return p
+}
+
+func TestFreqWattCurveWriter_OFOnly_Hz1IsCB(t *testing.T) {
+	fwc, dir := newFreqWattCurveWriterFixture(t, 2, 0x29, ofOnlyProt(), "INV-A")
+	if err := fwc.Apply(context.Background(), sunspec.FreqWattCurveBodyHz1Off, []uint16{5030}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if _, ok := readQueuedParam(t, dir, "INV-A", "Under_Frequency_Watt_Low_set"); ok {
+		t.Error("Hz1 must not reach DH on an over-frequency-only curve")
+	}
+	got, ok := readQueuedParam(t, dir, "INV-A", "Over_frequency_Watt_Low_set")
+	if !ok || got < 50.29 || got > 50.31 {
+		t.Errorf("CB=%v (queued=%v) want 50.30", got, ok)
+	}
+}
+
+func TestFreqWattCurveWriter_OFOnly_Hz2IsCC(t *testing.T) {
+	fwc, dir := newFreqWattCurveWriterFixture(t, 2, 0x29, ofOnlyProt(), "INV-A")
+	if err := fwc.Apply(context.Background(), sunspec.FreqWattCurveBodyHz2Off, []uint16{5150}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	got, ok := readQueuedParam(t, dir, "INV-A", "Over_frequency_Watt_High_set")
+	if !ok || got < 51.49 || got > 51.51 {
+		t.Errorf("CC=%v (queued=%v) want 51.50", got, ok)
+	}
+}
+
+func TestFreqWattCurveWriter_OFOnly_RejectsHz3(t *testing.T) {
+	fwc, _ := newFreqWattCurveWriterFixture(t, 2, 0x29, ofOnlyProt(), "INV-A")
+	if err := fwc.Apply(context.Background(), sunspec.FreqWattCurveBodyHz3Off, []uint16{5050}); err == nil {
+		t.Error("Hz3 write accepted on a 2-point curve; want error")
+	}
+}
+
+// No protection data at all → the encoder publishes ActPt=0 with the
+// 4-point layout, so Hz1 keeps mapping to DH.
+func TestFreqWattCurveWriter_NoProtectionKeepsFourPointLayout(t *testing.T) {
+	fwc, dir := newFreqWattCurveWriterFixture(t, 2, 0x18, source.ProtectionParams{Has: map[string]bool{}}, "INV-A")
+	if err := fwc.Apply(context.Background(), sunspec.FreqWattCurveBodyHz1Off, []uint16{4700}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if _, ok := readQueuedParam(t, dir, "INV-A", "Under_Frequency_Watt_Low_set"); !ok {
+		t.Error("expected Hz1 → DH with no protection data")
+	}
+}

@@ -17,6 +17,10 @@ import (
 //	body[15] (Hz3) → Over_frequency_Watt_Low_set   (CB)
 //	body[17] (Hz4) → Over_frequency_Watt_High_set  (CC)
 //
+// Inverters without the under-frequency side get a 2-point curve where
+// Hz1/Hz2 map to CB/CC and Hz3/Hz4 are read-only (see
+// sunspec.FreqWattCurveOFOnly).
+//
 // W1..W4 are intrinsic to the curve role (0/100/100/0); a SunSpec
 // client writing them is rejected — the curve cannot be reshaped via
 // W% on this firmware, the four thresholds are the only freedom.
@@ -49,13 +53,12 @@ var freqWattCurveHzPoints = []fwHzPoint{
 	{body: sunspec.FreqWattCurveBodyHz4Off, aps: "Over_frequency_Watt_High_set", code: "CC"},
 }
 
-// freqWattCurveWritableSet enumerates the body offsets the writer
-// accepts. Anything else triggers an "is read-only" error.
-var freqWattCurveWritableSet = map[uint16]bool{
-	sunspec.FreqWattCurveBodyHz1Off: true,
-	sunspec.FreqWattCurveBodyHz2Off: true,
-	sunspec.FreqWattCurveBodyHz3Off: true,
-	sunspec.FreqWattCurveBodyHz4Off: true,
+// freqWattCurveOFOnlyPoints is the 2-point layout Model 134 publishes for
+// inverters without the under-frequency side (sunspec.FreqWattCurveOFOnly):
+// Hz1/Hz2 carry CB/CC.
+var freqWattCurveOFOnlyPoints = []fwHzPoint{
+	{body: sunspec.FreqWattCurveBodyHz1Off, aps: "Over_frequency_Watt_Low_set", code: "CB"},
+	{body: sunspec.FreqWattCurveBodyHz2Off, aps: "Over_frequency_Watt_High_set", code: "CC"},
 }
 
 func (fwc *FreqWattCurveWriter) Apply(ctx context.Context, addrOffset uint16, regs []uint16) error {
@@ -73,6 +76,16 @@ func (fwc *FreqWattCurveWriter) Apply(ctx context.Context, addrOffset uint16, re
 	uid := inv.UID
 	family := familyForModel(inv.Model)
 
+	// Follow the layout the encoder published for this inverter.
+	points := freqWattCurveHzPoints
+	if sunspec.FreqWattCurveOFOnly(fwc.snap.Protection[uid]) {
+		points = freqWattCurveOFOnlyPoints
+	}
+	writable := make(map[uint16]bool, len(points))
+	for _, pt := range points {
+		writable[pt.body] = true
+	}
+
 	// Reject writes that touch any read-only register. W1..W4 are
 	// rejected with a specific message — they look writable per the
 	// SunSpec spec, but on this APsystems-bridge they're intrinsic to
@@ -82,7 +95,7 @@ func (fwc *FreqWattCurveWriter) Apply(ctx context.Context, addrOffset uint16, re
 		if !writeTouches(addrOffset, regs, off) {
 			continue
 		}
-		if freqWattCurveWritableSet[off] {
+		if writable[off] {
 			continue
 		}
 		switch off {
@@ -95,7 +108,7 @@ func (fwc *FreqWattCurveWriter) Apply(ctx context.Context, addrOffset uint16, re
 				"offset %d", off)
 		default:
 			return fmt.Errorf("Model 134 body offset %d is read-only "+
-				"(only Hz1/Hz2/Hz3/Hz4 are writable on this APsystems bridge)", off)
+				"(only the %d active Hz points are writable on this APsystems bridge)", off, len(points))
 		}
 	}
 
@@ -121,7 +134,7 @@ func (fwc *FreqWattCurveWriter) Apply(ctx context.Context, addrOffset uint16, re
 	// "applied".
 	expected := map[string]float64{}
 	any := false
-	for _, pt := range freqWattCurveHzPoints {
+	for _, pt := range points {
 		if !writeTouches(addrOffset, regs, pt.body) {
 			continue
 		}
