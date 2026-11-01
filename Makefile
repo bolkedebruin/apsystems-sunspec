@@ -19,6 +19,10 @@ GOFLAGS := -trimpath -ldflags '$(LDFLAGS)'
 # separately for armv7 + glibc 2.15 (Debian wheezy 2012.55 binaries work).
 DROPBEAR_DIR ?=
 
+# Binaries depend on every Go source plus the module files, so editing
+# code triggers a rebuild instead of reusing a stale dist/ binary.
+GO_SRCS := $(shell find . -name '*.go' -not -path './$(DIST)/*') go.mod go.sum
+
 .PHONY: all test ecu sidecar mac clean package package-with-dropbear fetch-dropbear
 
 all: ecu sidecar
@@ -26,7 +30,7 @@ all: ecu sidecar
 # ECU: AM335x, ARMv7, glibc 2.15. CGO disabled — modernc.org/sqlite is pure Go.
 ecu: $(DIST)/$(BIN)-linux-armv7
 
-$(DIST)/$(BIN)-linux-armv7:
+$(DIST)/$(BIN)-linux-armv7: $(GO_SRCS)
 	@mkdir -p $(DIST)
 	GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 \
 		go build $(GOFLAGS) -o $@ $(PKG)
@@ -35,7 +39,7 @@ $(DIST)/$(BIN)-linux-armv7:
 # sidecar: x86_64 sidecar host (Synology, generic Linux server, etc.).
 sidecar: $(DIST)/$(BIN)-linux-amd64
 
-$(DIST)/$(BIN)-linux-amd64:
+$(DIST)/$(BIN)-linux-amd64: $(GO_SRCS)
 	@mkdir -p $(DIST)
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
 		go build $(GOFLAGS) -o $@ $(PKG)
@@ -43,7 +47,7 @@ $(DIST)/$(BIN)-linux-amd64:
 
 # Local development build.
 mac: $(DIST)/$(BIN)-darwin
-$(DIST)/$(BIN)-darwin:
+$(DIST)/$(BIN)-darwin: $(GO_SRCS)
 	@mkdir -p $(DIST)
 	go build $(GOFLAGS) -o $@ $(PKG)
 
