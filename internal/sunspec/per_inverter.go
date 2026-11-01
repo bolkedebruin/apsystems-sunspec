@@ -9,7 +9,7 @@ import (
 // EncodePerInverter produces a self-contained SunSpec bank for a single
 // microinverter. Layout is the SunSpec equivalent of "one Fronius behind the
 // Datalogger" — Common Model identifies the microinverter, the Inverter Model
-// (101 single-phase, 103 for the three-phase YC1000) exposes its electrical
+// (101 single-phase, 103 for the three-phase YC1000 / QT2) exposes its electrical
 // state, and Multi-MPPT (160) lists
 // its panels.
 //
@@ -246,6 +246,16 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 	}
 }
 
+// isQT2Model reports whether id.model belongs to the QT2 family — the same
+// codes internal/server/profiles.go routes to the QT2 frame builder.
+func isQT2Model(model int) bool {
+	switch model {
+	case 0x29, 0x30, 0x31, 0x32:
+		return true
+	}
+	return false
+}
+
 // inverterModelLabel returns the Common Model `Md` for a per-inverter bank.
 //
 // The mapping comes from APsystems' wire-protocol type code (parameters_app.conf
@@ -255,7 +265,10 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 //	"03" — QS1                (4-channel)
 //	"04" — DS3-H / DS3D-L     (2-channel)
 //	"05" — QT2                (4-channel three-phase)
-//	"02" — YC1000             (4-channel three-phase)
+//	"02" — YC1000 / QT2       (4-channel three-phase)
+//
+// ECU-C fw C1.2.27A reports a QT2 as type "02" (id.model 41 = 0x29), so
+// the QT2 family's id.model codes tell it apart from the YC1000.
 //
 // The vendor name lives in `Mn`, so don't repeat it here — Venus and HA
 // combine Mn + Md when displaying.
@@ -264,6 +277,9 @@ func inverterModelLabel(inv source.Inverter) string {
 	case "01":
 		return "DS3"
 	case "02":
+		if isQT2Model(inv.Model) {
+			return "QT2"
+		}
 		return "YC1000"
 	case "03":
 		return "QS1"

@@ -119,8 +119,10 @@ func TestParseParamsApp_TypeTwo(t *testing.T) {
 	if got, want := inv.PanelPowers(), []int{187, 194, 184, 186}; !equalInts(got, want) {
 		t.Errorf("PanelPowers=%v want %v", got, want)
 	}
-	if got := inv.NameplateW(); got != 900 {
-		t.Errorf("NameplateW=%d want 900", got)
+	// Type 02 covers both the YC1000 and the 2000 W QT2, so there's no
+	// safe TypeCode fallback: the rating comes from the model table.
+	if got := inv.NameplateW(); got != 0 {
+		t.Errorf("NameplateW=%d want 0 without a model table entry", got)
 	}
 }
 
@@ -151,5 +153,20 @@ func TestInverter_TypeTwoIsThreePhaseWithLineVoltages(t *testing.T) {
 	}
 	if got := ds3.LineToLineV(); got != [3]int{} {
 		t.Errorf("DS3 LineToLineV=%v want zeros", got)
+	}
+}
+
+// The shipped table must rate model 41 (QT2, reported as type 02 by
+// ECU-C fw C1.2.27A) at its 2000 W AC nameplate.
+func TestPackagedNameplateTable_QT2(t *testing.T) {
+	saved := nameplateByModel
+	t.Cleanup(func() { nameplateByModel = saved })
+
+	if _, err := LoadNameplateTable("../../packaging/nameplate.json"); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	inv := Inverter{TypeCode: "02", Model: 41}
+	if got := inv.NameplateW(); got != 2000 {
+		t.Errorf("model 41 NameplateW=%d want 2000", got)
 	}
 }

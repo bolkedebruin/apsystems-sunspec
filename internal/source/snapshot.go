@@ -164,7 +164,7 @@ type Inverter struct {
 // integration:
 //
 //	"01" — YC600 / DS3       (2-channel single-phase)
-//	"02" — YC1000            (4-channel three-phase)
+//	"02" — YC1000 / QT2      (4-channel three-phase; id.model 41 = QT2)
 //	"03" — QS1               (4-channel single-phase)
 //	"04" — DS3-H / DS3D-L    (2-channel single-phase)
 //	"05" — QT2               (4-channel three-phase)
@@ -179,7 +179,7 @@ func (inv Inverter) PanelCount() int {
 }
 
 // ThreePhase reports whether the inverter feeds all three grid phases
-// itself (YC1000) rather than a single phase picked by id.phase.
+// itself (YC1000 / QT2) rather than a single phase picked by id.phase.
 func (inv Inverter) ThreePhase() bool {
 	return inv.TypeCode == "02"
 }
@@ -301,8 +301,6 @@ func (inv Inverter) NameplateW() int {
 	switch inv.TypeCode {
 	case "01":
 		return 730
-	case "02":
-		return 900
 	case "03":
 		return 1460
 	case "04":

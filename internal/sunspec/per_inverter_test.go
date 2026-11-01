@@ -148,3 +148,18 @@ func TestEncodePerInverter_OfflineHasStSleep(t *testing.T) {
 		t.Errorf("offline St=%d want StSleep", got)
 	}
 }
+
+// Type 02 is shared by the YC1000 and the QT2; id.model 41 identifies
+// the QT2 (observed on ECU-C fw C1.2.27A).
+func TestEncodePerInverter_TypeTwoLabelFromModel(t *testing.T) {
+	cases := map[int]string{41: "QT2", 0x32: "QT2", 5: "YC1000", 0: "YC1000"}
+	for model, want := range cases {
+		inv := sampleInverter()
+		inv.TypeCode = "02"
+		inv.Model = model
+		bank := EncodePerInverter(inv, "ECU", 2, Options{})
+		if got := readString(bank, BaseRegister+20, 16); got != want {
+			t.Errorf("model=%d: Md=%q want %q", model, got, want)
+		}
+	}
+}
