@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -96,6 +97,11 @@ func main() {
 		logger.Fatalf("phase-mode: %v", err)
 	}
 
+	var fastPollingFile string
+	if *yunengDir != "" {
+		fastPollingFile = filepath.Join(*yunengDir, source.FastPollingFile)
+	}
+
 	srv := server.New(builder, server.Config{
 		URL:             *bind,
 		RefreshInterval: *refresh,
@@ -106,9 +112,11 @@ func main() {
 			SerialFallback: *serialFallback,
 			Phase:          phaseMode,
 		},
-		Writes: cfg,
-		Writer: writer,
-		Logger: logger,
+		Writes:            cfg,
+		Writer:            writer,
+		FastPollingFile:   fastPollingFile,
+		FastPollStateFile: "/home/sunspec-fastpoll.conf",
+		Logger:            logger,
 	})
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

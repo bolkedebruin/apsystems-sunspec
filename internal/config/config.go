@@ -49,6 +49,15 @@ type WritesConfig struct {
 	//
 	// JSON tristate: omitted = nil = default (true); explicit false disables.
 	AllowLocalNetwork *bool `json:"allow_local_network,omitempty"`
+
+	// AllowFastPolling gates Model 64203 FastPoll writes, which toggle the
+	// ECU's Service Mode (/etc/yuneng/fast_polling.conf). Service Mode
+	// polls the inverters every ~20 s instead of every 5 min but stops
+	// the inverter data sent to EMA until it is switched off again.
+	// Source-address gating above still applies.
+	//
+	// JSON tristate: omitted = nil = default (true); explicit false disables.
+	AllowFastPolling *bool `json:"allow_fast_polling,omitempty"`
 }
 
 // IsEnabled reports whether writes are enabled. Default (nil) is true.
@@ -72,6 +81,15 @@ func (w WritesConfig) LocalAllowed() bool {
 		return true
 	}
 	return *w.AllowLocalNetwork
+}
+
+// FastPollingAllowed reports the effective value of AllowFastPolling —
+// defaulting to true when the field is omitted.
+func (w WritesConfig) FastPollingAllowed() bool {
+	if w.AllowFastPolling == nil {
+		return true
+	}
+	return *w.AllowFastPolling
 }
 
 // Load reads and validates a Config JSON file. Returns the zero value with no

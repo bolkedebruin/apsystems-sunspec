@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -18,6 +19,20 @@ type Builder struct {
 	ECUID    string
 	Firmware string
 	Model    string
+
+	// EMA upload bookkeeping (see ema.go). Empty paths skip that source.
+	// The files are read at most once per EMAInterval and the result is
+	// cached between refreshes.
+	RecordDB    string
+	ControlLog  string
+	EMAFlagFile string
+	EMAInterval time.Duration
+
+	// Now overrides the clock (tests); nil means time.Now.
+	Now func() time.Time
+
+	ema   EMAStatus
+	emaAt time.Time
 }
 
 // NewBuilder helper that loads metadata from /etc/yuneng/*.conf if available.
@@ -30,8 +45,20 @@ func NewBuilder(db *SQLiteReader, paramsFile, yunengDir string) *Builder {
 		Firmware:   readTrim(yunengDir, "version.conf"),
 		Model:      readTrim(yunengDir, "model.conf"),
 		YunengDir:  yunengDir,
+
+		RecordDB:    "/home/record.db",
+		ControlLog:  "/home/control_client.log",
+		EMAFlagFile: "/tmp/connectemaflag.txt",
+		EMAInterval: time.Minute,
 	}
 	return b
+}
+
+func (b *Builder) now() time.Time {
+	if b.Now != nil {
+		return b.Now()
+	}
+	return time.Now()
 }
 
 func readTrim(dir, name string) string {
@@ -57,8 +84,9 @@ func readIntFile(path string) (int, error) {
 // they log into the snapshot's ECUID-prefixed missing fields as zeros and the
 // caller decides what to surface upstream.
 func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
+	now := b.now()
 	s := Snapshot{
-		Captured: time.Now(),
+		Captured: now,
 		ECUID:    b.ECUID,
 		Firmware: b.Firmware,
 		Model:    b.Model,
@@ -169,6 +197,21 @@ func (b *Builder) Build(ctx context.Context) (Snapshot, error) {
 			}
 		}
 	}
+
+	// Last radio cycle, Service Mode flag and EMA upload status (the
+	// latter read at most once per EMAInterval).
+	s.LastPollTime = hdr.Timestamp
+	if fi, err := os.Stat(b.ParamsFile); err == nil {
+		s.LastPollTime = fi.ModTime()
+	}
+	if b.YunengDir != "" {
+		s.FastPolling, s.FastPollingSince = ReadFastPolling(filepath.Join(b.YunengDir, FastPollingFile))
+	}
+	if b.emaAt.IsZero() || now.Sub(b.emaAt) >= b.EMAInterval {
+		b.ema = b.readEMAStatus(ctx, b.ema, now)
+		b.emaAt = now
+	}
+	s.EMA = b.ema
 
 	s.Inverters = invs
 	s.InverterCount = hdr.InverterCount

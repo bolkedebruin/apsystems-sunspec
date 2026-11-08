@@ -1,0 +1,125 @@
+{
+    "id": 64203,
+    "group": {
+        "name": "apsystems_ecu_control",
+        "label": "APsystems ECU control",
+        "desc": "Vendor model emitted by ecu-sunspec on unit ID 1. ECU Service Mode (fast polling) control and freshness of the ECU's last radio cycle.",
+        "type": "group",
+        "points": [
+            {
+                "name": "ID",
+                "value": 64203,
+                "desc": "Model identifier",
+                "label": "Model ID",
+                "mandatory": "M",
+                "static": "S",
+                "size": 1,
+                "type": "uint16"
+            },
+            {
+                "name": "L",
+                "desc": "Model length",
+                "label": "Model Length",
+                "mandatory": "M",
+                "static": "S",
+                "size": 1,
+                "type": "uint16"
+            },
+            {
+                "name": "FastPoll",
+                "type": "enum16",
+                "size": 1,
+                "access": "RW",
+                "label": "Service Mode",
+                "desc": "ECU Service Mode (/etc/yuneng/fast_polling.conf) polls the inverters every ~20 s instead of every 5 min and stops the inverter production data sent to EMA (EMA loses that energy). 0 normal; 1 Service Mode, kept on by the adapter (main.exe drops it after 60 minutes); 2 automatic: Service Mode while production is at or above FastPollThresholdW, normal mode below. FastPollElapsedS > 0 tells whether Service Mode is on right now.",
+                "symbols": [
+                    {"name": "NORMAL",  "value": 0},
+                    {"name": "SERVICE", "value": 1},
+                    {"name": "AUTO",    "value": 2}
+                ]
+            },
+            {
+                "name": "FastPollElapsedS",
+                "type": "uint16",
+                "size": 1,
+                "label": "Service Mode Elapsed",
+                "desc": "Seconds since Service Mode was entered (saturates at 65534); 0 in normal mode.",
+                "units": "Secs"
+            },
+            {
+                "name": "LastPollTms",
+                "type": "uint32",
+                "size": 2,
+                "label": "Last Poll Time",
+                "desc": "Unix time of the ECU's last radio cycle (mtime of /tmp/parameters_app.conf).",
+                "units": "Secs"
+            },
+            {
+                "name": "DataAgeS",
+                "type": "uint16",
+                "size": 1,
+                "label": "Data Age",
+                "desc": "Seconds since the ECU's last radio cycle.",
+                "units": "Secs"
+            },
+            {
+                "name": "EmaConnected",
+                "type": "enum16",
+                "size": 1,
+                "label": "EMA Connected",
+                "desc": "Upload link to EMA, from /tmp/connectemaflag.txt.",
+                "symbols": [
+                    {"name": "DISCONNECTED", "value": 0},
+                    {"name": "CONNECTED",    "value": 1}
+                ]
+            },
+            {
+                "name": "LastProdRecTms",
+                "type": "uint32",
+                "size": 2,
+                "label": "Last Production Record",
+                "desc": "Unix time of the newest inverter production record (APS18) queued for EMA in /home/record.db.",
+                "units": "Secs"
+            },
+            {
+                "name": "ProdRecPending",
+                "type": "uint16",
+                "size": 1,
+                "label": "Production Records Pending",
+                "desc": "Production records not yet marked sent (normally 0 or 1)."
+            },
+            {
+                "name": "ProdRecLastHour",
+                "type": "uint16",
+                "size": 1,
+                "label": "Production Records Last Hour",
+                "desc": "Production records dated within the last hour: 12 in normal mode, 0 while Service Mode is on."
+            },
+            {
+                "name": "LastEmaCtrlTms",
+                "type": "uint32",
+                "size": 2,
+                "label": "Last EMA Control Contact",
+                "desc": "Unix time of control_client's last successful EMA session (every 15 min), from /home/control_client.log.",
+                "units": "Secs"
+            },
+            {
+                "name": "ProdRecAgeS",
+                "type": "uint16",
+                "size": 1,
+                "label": "Production Record Age",
+                "desc": "Seconds since the newest production record.",
+                "units": "Secs"
+            },
+            {
+                "name": "FastPollThresholdW",
+                "type": "uint16",
+                "size": 1,
+                "access": "RW",
+                "label": "Service Mode Threshold",
+                "desc": "Automatic mode (FastPoll = 2): Service Mode while system production is at or above this power, normal mode once it has stayed below threshold - max(10 W, 20 %) for 2 minutes; at most one switch every 10 minutes. Default 50 W.",
+                "units": "W"
+            }
+        ]
+    }
+}
