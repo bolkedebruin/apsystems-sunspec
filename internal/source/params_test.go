@@ -59,6 +59,21 @@ func TestParseParamsApp_TypeOneAndThree(t *testing.T) {
 	}
 }
 
+// main.exe rewrites parameters_app.conf in place every cycle (~20 s in
+// Service Mode); a read that lands mid-write sees the header without the
+// inverter lines. That must be an error, not "0 inverters, 0 W".
+func TestParseParamsApp_RejectsTruncatedFile(t *testing.T) {
+	for name, in := range map[string]string{
+		"header only": "01,1,20261108131500\n",
+		"one of two":  "01,2,20261108131500\n901500081373,1,02,50.0,118,73,399,77,400,78,402,81\n",
+		"empty":       "",
+	} {
+		if _, _, err := ParseParamsApp(strings.NewReader(in)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
 func TestParseParamsApp_RejectsShortLine(t *testing.T) {
 	in := strings.NewReader("01,1,20260501094000\n999900000001,1,01\n")
 	_, _, err := ParseParamsApp(in)
