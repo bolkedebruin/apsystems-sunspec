@@ -46,6 +46,14 @@ func ParseParamsApp(r io.Reader) (header ParamsHeader, invs []Inverter, err erro
 	if err := sc.Err(); err != nil {
 		return header, nil, err
 	}
+	// main.exe rewrites the file in place every cycle; a read that lands
+	// mid-write sees the header without (all) the inverter lines.
+	if lineNo == 0 {
+		return header, nil, errors.New("empty file")
+	}
+	if len(invs) < header.InverterCount {
+		return header, nil, fmt.Errorf("truncated: header announces %d inverters, got %d", header.InverterCount, len(invs))
+	}
 	return header, invs, nil
 }
 
