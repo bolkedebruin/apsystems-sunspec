@@ -508,9 +508,12 @@ func detectPhase(s source.Snapshot) PhaseMode {
 
 // emitMultiMPPT appends a SunSpec Model 160 (Multi-MPPT) section to the bank.
 //
-// One module per **panel** (PV input channel) on every online microinverter.
-// A DS3 contributes 2 modules, a QS1 contributes 4 — the count derives from
-// the inverter type, never hardcoded.
+// One module per **panel** (PV input channel) of every known microinverter,
+// online or not. A DS3 contributes 2 modules, a QS1 contributes 4 — the
+// count derives from the inverter type, never hardcoded. Keeping offline
+// inverters' panels keeps the bank layout identical day and night and
+// through a missed radio cycle, so clients that cached register addresses
+// don't get read errors.
 //
 // APsystems exposes per-panel power and, in /tmp/parameters.conf, per-panel
 // DC voltage — but not DC current. We map:
@@ -521,25 +524,40 @@ func detectPhase(s source.Snapshot) PhaseMode {
 //	Tmp   ← per-inverter cabinet temperature, shared
 //	DCSt  ← MPPT(4) when panel power > 0, Off(1) otherwise
 //	IDStr ← "<last8(UID)>/<A|B|C|D>"
+//
+// Panels of an offline inverter (or one whose telemetry row is short) carry
+// the "not implemented" values: clients show them as unknown.
 func emitMultiMPPT(bank *Bank, s source.Snapshot) {
-	type panelEntry struct {
-		inv     source.Inverter
-		channel int // 0..3
-		powerW  int
+	emitMPPT(bank, mpptPanels(s.Inverters))
+}
+
+// mpptPanel is one Model 160 module. ok is false when the inverter has no
+// current reading for its panels.
+type mpptPanel struct {
+	inv     source.Inverter
+	channel int // 0..3
+	powerW  int
+	ok      bool
+}
+
+func mpptPanels(invs []source.Inverter) []mpptPanel {
+	var panels []mpptPanel
+	for _, inv := range invs {
+		n := inv.PanelCount()
+		powers := inv.PanelPowers()
+		ok := inv.Online && len(powers) == n
+		for c := 0; c < n; c++ {
+			p := mpptPanel{inv: inv, channel: c, ok: ok}
+			if ok {
+				p.powerW = powers[c]
+			}
+			panels = append(panels, p)
+		}
 	}
-	var panels []panelEntry
-	for _, inv := range s.Inverters {
-		if !inv.Online {
-			continue
-		}
-		ch := inv.PanelPowers()
-		if len(ch) == 0 {
-			continue
-		}
-		for i, p := range ch {
-			panels = append(panels, panelEntry{inv: inv, channel: i, powerW: p})
-		}
-	}
+	return panels
+}
+
+func emitMPPT(bank *Bank, panels []mpptPanel) {
 	if len(panels) == 0 {
 		return
 	}
@@ -567,6 +585,16 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 	for i, e := range panels {
 		bank.put16(uint16(i + 1))
 		bank.putString(panelLabel(e.inv, e.channel), 8)
+
+		if !e.ok {
+			bank.put16(notImplU16, notImplU16, notImplU16) // DCA, DCV, DCW
+			bank.putAcc32(0)                               // DCWH
+			bank.putAcc32(tmsNotImpl)                      // Tms
+			bank.put16(notImplS16)                         // Tmp
+			bank.put16(notImplU16)                         // DCSt
+			bank.putAcc32(uint64(notImplU32))              // DCEvt
+			continue
+		}
 
 		// DCA / DCV — real per-channel DC voltage, current derived from it
 		dca, dcv := panelDCU16(e.inv, e.channel, e.powerW)

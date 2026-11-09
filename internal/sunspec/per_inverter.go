@@ -187,51 +187,10 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	return bank
 }
 
+// emitPerInverterMPPT appends Model 160 with this inverter's panels; same
+// encoding as the aggregate (see emitMultiMPPT), offline panels included.
 func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
-	powers := inv.PanelPowers()
-	if len(powers) == 0 {
-		return
-	}
-	n := uint16(len(powers))
-	bodyLen := MultiMPPTFixedBlockLen + MultiMPPTPerModuleLen*n
-
-	bank.put16(MultiMPPTModelID, bodyLen)
-
-	// Fixed block (8 regs body)
-	bank.put16(scaleFactor(-1))
-	bank.put16(scaleFactor(0))
-	bank.put16(scaleFactor(0))
-	bank.put16(scaleFactor(0))
-	bank.putAcc32(uint64(notImplU32)) // Evt — global module events
-	bank.put16(n)
-	bank.put16(notImplU16)
-
-	// One module per panel
-	for i, p := range powers {
-		bank.put16(uint16(i + 1))
-		bank.putString(panelLabel(inv, i), 8)
-
-		dca, dcv := panelDCU16(inv, i, p)
-		bank.put16(dca, dcv)
-
-		dcw := uint16(notImplU16)
-		if p >= 0 && p < 65535 {
-			dcw = uint16(p)
-		}
-		bank.put16(dcw)
-
-		bank.putAcc32(0)                  // DCWH — per-panel lifetime not tracked
-		bank.putAcc32(uint64(notImplU32)) // Tms — emit "not implemented" sentinel
-
-		bank.put16(uint16(int16(clampInt32(int32(inv.TemperatureC), -100, 200))))
-
-		st := StOff
-		if p > 0 {
-			st = StMPPT
-		}
-		bank.put16(st)
-		bank.putAcc32(uint64(notImplU32)) // DCEvt — bitfield32 not-impl
-	}
+	emitMPPT(bank, mpptPanels([]source.Inverter{inv}))
 }
 
 // isQT2Model reports whether id.model belongs to the QT2 family — the same
