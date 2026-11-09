@@ -159,10 +159,12 @@ const (
 // DH, DI, CB, CC respectively; W1..W4 are fixed at 0/100/100/0
 // because they're intrinsic to the threshold roles, not user-tunable.
 //
-// If any of the four codes is missing from p.Has, the curve emits with
-// ActPt=0 (model still discoverable, but disabled). ModEna defaults to
-// 0 (disabled) until all four points are populated AND OFDroopMode
-// is in the active enum range — keeps Model 134 from announcing an
+// Inverters that don't implement the under-frequency side (DH/DI absent
+// or 655.35, APsystems' "not supported" value) get a 2-point curve:
+// Hz1 = CB at 100 %, Hz2 = CC at 0 %, ActPt=2. If CB or CC is missing
+// the curve emits with ActPt=0 (model still discoverable, but
+// disabled). ModEna defaults to 0 (disabled) until CB and CC are
+// populated AND OFDroopMode is in the active enum range — keeps Model 134 from announcing an
 // inverter is freq-watt-active when the firmware still says disabled.
 func emitFreqWattCurve(bank *Bank, p source.ProtectionParams) {
 	bank.put16(FreqWattCurveModelID, FreqWattCurveBodyLen)
@@ -180,9 +182,10 @@ func emitFreqWattCurve(bank *Bank, p source.ProtectionParams) {
 	//   15 = disabled
 	const cvAsNzs = 13
 	const cvOther = 14
-	hasAll := p.Has["DH"] && p.Has["DI"] && p.Has["CB"] && p.Has["CC"]
+	hasUF := FreqWattCurveHasUF(p)
+	hasOF := freqWattCurveHasOF(p)
 	modEna := uint16(0)
-	if hasAll && (int(p.OFDroopMode) == cvAsNzs || int(p.OFDroopMode) == cvOther) {
+	if hasOF && (int(p.OFDroopMode) == cvAsNzs || int(p.OFDroopMode) == cvOther) {
 		modEna = 1
 	}
 	bank.put16(modEna)
@@ -198,27 +201,37 @@ func emitFreqWattCurve(bank *Bank, p source.ProtectionParams) {
 
 	// --- Curve 1 (57 regs) ---
 
-	// ActPt: only count as active when all four codes present.
-	if hasAll {
+	// ActPt: 4 points when both sides are populated; 2 (CB, CC) when the
+	// inverter only implements the over-frequency side; else disabled.
+	ofOnly := FreqWattCurveOFOnly(p)
+	switch {
+	case hasOF && hasUF:
 		bank.put16(freqWattCurveActPt)
-	} else {
+	case ofOnly:
+		bank.put16(2)
+	default:
 		bank.put16(0)
 	}
 
-	// Hz1..W4 — the four user-driven Hz from APsystems codes, fixed W%.
-	hz1 := hzCenti16(p.OFCurveUFLow)  // DH
-	hz2 := hzCenti16(p.OFCurveUFHigh) // DI
-	hz3 := hzCenti16(p.OFCurveOFLow)  // CB
-	hz4 := hzCenti16(p.OFDroopEnd)    // CC
-
-	bank.put16(hz1) // Hz1
-	bank.put16(0)   // W1 = 0%
-	bank.put16(hz2) // Hz2
-	bank.put16(100) // W2 = 100%
-	bank.put16(hz3) // Hz3
-	bank.put16(100) // W3 = 100%
-	bank.put16(hz4) // Hz4
-	bank.put16(0)   // W4 = 0%
+	if ofOnly {
+		// Hz1/Hz2 = CB/CC; points 3-4 unused. The writer maps Hz1/Hz2
+		// back to CB/CC for this layout (see FreqWattCurveOFOnly).
+		bank.put16(hzCenti16(p.OFCurveOFLow)) // Hz1 = CB
+		bank.put16(100)                       // W1 = 100%
+		bank.put16(hzCenti16(p.OFDroopEnd))   // Hz2 = CC
+		bank.put16(0)                         // W2 = 0%
+		bank.put16(0, 0, 0, 0)                // Hz3, W3, Hz4, W4
+	} else {
+		// Hz1..W4 — the four user-driven Hz from APsystems codes, fixed W%.
+		bank.put16(hzCenti16(p.OFCurveUFLow))  // Hz1 = DH
+		bank.put16(0)                          // W1 = 0%
+		bank.put16(hzCenti16(p.OFCurveUFHigh)) // Hz2 = DI
+		bank.put16(100)                        // W2 = 100%
+		bank.put16(hzCenti16(p.OFCurveOFLow))  // Hz3 = CB
+		bank.put16(100)                        // W3 = 100%
+		bank.put16(hzCenti16(p.OFDroopEnd))    // Hz4 = CC
+		bank.put16(0)                          // W4 = 0%
+	}
 
 	// Hz5..W20 — unused points. Emit zeros (NPt declared = 20, ActPt = 4
 	// tells clients only the first 4 are meaningful). 16 unused points
@@ -247,6 +260,32 @@ func emitFreqWattCurve(bank *Bank, p source.ProtectionParams) {
 
 	// ReadOnly = READWRITE — clients are allowed to rewrite the points.
 	bank.put16(freqWattCurveReadOnlyRW)
+}
+
+// freqWattUnsupportedHz is what APsystems stores for a freq-watt threshold
+// the inverter doesn't implement: 0xFFFF centi-Hz.
+const freqWattUnsupportedHz = 655.35
+
+// freqWattHz reports whether code holds a real threshold.
+func freqWattHz(p source.ProtectionParams, code string, hz float64) bool {
+	return p.Has[code] && hz > 0 && hz < freqWattUnsupportedHz
+}
+
+// FreqWattCurveHasUF reports whether the inverter implements the
+// under-frequency side of the curve (DH and DI).
+func FreqWattCurveHasUF(p source.ProtectionParams) bool {
+	return freqWattHz(p, "DH", p.OFCurveUFLow) && freqWattHz(p, "DI", p.OFCurveUFHigh)
+}
+
+func freqWattCurveHasOF(p source.ProtectionParams) bool {
+	return freqWattHz(p, "CB", p.OFCurveOFLow) && freqWattHz(p, "CC", p.OFDroopEnd)
+}
+
+// FreqWattCurveOFOnly reports whether Model 134 uses the 2-point layout
+// (Hz1 = CB, Hz2 = CC): the over-frequency side is populated and the
+// under-frequency side isn't implemented.
+func FreqWattCurveOFOnly(p source.ProtectionParams) bool {
+	return freqWattCurveHasOF(p) && !FreqWattCurveHasUF(p)
 }
 
 // hzCenti16 encodes Hz as centi-Hertz (Hz_SF=-2) into a uint16. 50.20

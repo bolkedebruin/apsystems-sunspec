@@ -9,7 +9,8 @@ import (
 // EncodePerInverter produces a self-contained SunSpec bank for a single
 // microinverter. Layout is the SunSpec equivalent of "one Fronius behind the
 // Datalogger" — Common Model identifies the microinverter, the Inverter Model
-// (101, single-phase) exposes its electrical state, and Multi-MPPT (160) lists
+// (101 single-phase, 103 for the three-phase YC1000 / QT2) exposes its electrical
+// state, and Multi-MPPT (160) lists
 // its panels.
 //
 // The bank is intended to be served at a per-inverter Modbus unit ID, so a
@@ -41,10 +42,17 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	bank.put16(unitID)                               // DA — Modbus unit address
 	bank.put16(0)                                    // pad
 
-	// --- Inverter Model 101 (single-phase) ---
-	bank.put16(InverterModelSinglePhase, InverterModelBodyLen)
+	// --- Inverter Model 101 (single-phase) or 103 (three-phase YC1000) ---
+	phases := 1
+	modelID := InverterModelSinglePhase
+	if inv.ThreePhase() {
+		phases = 3
+		modelID = InverterModelThreePhase
+	}
+	bank.put16(modelID, InverterModelBodyLen)
 
-	// A / per-phase A — derive from W/V; 0.1 A units (ASF=-1)
+	// A / per-phase A — derive from W/V; 0.1 A units (ASF=-1). Three-phase
+	// output is balanced, so each phase carries a third of the total.
 	var a uint16
 	if inv.ACVoltageV > 0 && inv.ACPowerW >= 0 {
 		amps10 := float64(inv.ACPowerW) / float64(inv.ACVoltageV) * 10
@@ -52,19 +60,27 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 			a = uint16(amps10 + 0.5)
 		}
 	}
+	aph := a
+	if phases == 3 && inv.ACVoltageV > 0 && inv.ACPowerW >= 0 {
+		aph = uint16(float64(inv.ACPowerW)/3/float64(inv.ACVoltageV)*10 + 0.5)
+	}
 	bank.put16(a)
-	bank.put16(a, notImplU16, notImplU16) // AphA, AphB, AphC
-	bank.put16(scaleFactor(-1))           // ASF
+	bank.put16(aph, phaseValueU16(aph, 1, phases), phaseValueU16(aph, 2, phases)) // AphA, AphB, AphC
+	bank.put16(scaleFactor(-1))                                                   // ASF
 
-	// PPVphAB/BC/CA — line-line voltages, not measured
-	bank.put16(notImplU16, notImplU16, notImplU16)
+	// PPVphAB/BC/CA — line-line voltages, measured by three-phase inverters only
+	if ll := inv.LineToLineV(); ll[0] > 0 {
+		bank.put16(uint16(ll[0]), uint16(ll[1]), uint16(ll[2]))
+	} else {
+		bank.put16(notImplU16, notImplU16, notImplU16)
+	}
 
-	// PhVphA — line-neutral, B/C unimplemented for single-phase
+	// PhVphA/B/C — line-neutral, unused phases unimplemented
 	v := uint16(0)
 	if inv.ACVoltageV > 0 && inv.ACVoltageV < 65535 {
 		v = uint16(inv.ACVoltageV)
 	}
-	bank.put16(v, notImplU16, notImplU16)
+	bank.put16(v, phaseValueU16(v, 1, phases), phaseValueU16(v, 2, phases))
 	bank.put16(scaleFactor(0)) // VSF
 
 	// W / WSF
@@ -134,7 +150,7 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	bank.putAcc32(uint64(inv.EventBits[2]))                         // EvtVnd3 — raw 64-95
 	bank.putAcc32(uint64(notImplU32))                               // EvtVnd4 — unused
 
-	// --- Inverter Float Model 111 — same field set as 101, float32 encoding ---
+	// --- Inverter Float Model 111/113 — same field set as 101/103, float32 encoding ---
 	emitInverterFloatPerInverter(&bank, inv)
 
 	// --- Model 114 — DC Data float (per-panel) ---
@@ -171,63 +187,20 @@ func EncodePerInverterWithProtection(inv source.Inverter, ecuid string, unitID u
 	return bank
 }
 
+// emitPerInverterMPPT appends Model 160 with this inverter's panels; same
+// encoding as the aggregate (see emitMultiMPPT), offline panels included.
 func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
-	powers := inv.PanelPowers()
-	if len(powers) == 0 {
-		return
+	emitMPPT(bank, mpptPanels([]source.Inverter{inv}))
+}
+
+// isQT2Model reports whether id.model belongs to the QT2 family — the same
+// codes internal/server/profiles.go routes to the QT2 frame builder.
+func isQT2Model(model int) bool {
+	switch model {
+	case 0x29, 0x30, 0x31, 0x32:
+		return true
 	}
-	n := uint16(len(powers))
-	bodyLen := MultiMPPTFixedBlockLen + MultiMPPTPerModuleLen*n
-
-	bank.put16(MultiMPPTModelID, bodyLen)
-
-	// Fixed block (8 regs body)
-	bank.put16(scaleFactor(-1))
-	bank.put16(scaleFactor(0))
-	bank.put16(scaleFactor(0))
-	bank.put16(scaleFactor(0))
-	bank.putAcc32(uint64(notImplU32)) // Evt — global module events
-	bank.put16(n)
-	bank.put16(notImplU16)
-
-	// One module per panel
-	for i, p := range powers {
-		bank.put16(uint16(i + 1))
-		bank.putString(panelLabel(inv, i), 8)
-
-		var dca uint16 = notImplU16
-		if inv.ACVoltageV > 0 && p >= 0 {
-			amps10 := float64(p) / float64(inv.ACVoltageV) * 10
-			if amps10 < 65535 {
-				dca = uint16(amps10 + 0.5)
-			}
-		}
-		bank.put16(dca)
-
-		dcv := uint16(notImplU16)
-		if inv.ACVoltageV > 0 && inv.ACVoltageV < 65535 {
-			dcv = uint16(inv.ACVoltageV)
-		}
-		bank.put16(dcv)
-
-		dcw := uint16(notImplU16)
-		if p >= 0 && p < 65535 {
-			dcw = uint16(p)
-		}
-		bank.put16(dcw)
-
-		bank.putAcc32(0)                  // DCWH — per-panel lifetime not tracked
-		bank.putAcc32(uint64(notImplU32)) // Tms — emit "not implemented" sentinel
-
-		bank.put16(uint16(int16(clampInt32(int32(inv.TemperatureC), -100, 200))))
-
-		st := StOff
-		if p > 0 {
-			st = StMPPT
-		}
-		bank.put16(st)
-		bank.putAcc32(uint64(notImplU32)) // DCEvt — bitfield32 not-impl
-	}
+	return false
 }
 
 // inverterModelLabel returns the Common Model `Md` for a per-inverter bank.
@@ -239,7 +212,10 @@ func emitPerInverterMPPT(bank *Bank, inv source.Inverter) {
 //	"03" — QS1                (4-channel)
 //	"04" — DS3-H / DS3D-L     (2-channel)
 //	"05" — QT2                (4-channel three-phase)
-//	"02" — YC1000             (4-channel three-phase)
+//	"02" — YC1000 / QT2       (4-channel three-phase)
+//
+// ECU-C fw C1.2.27A reports a QT2 as type "02" (id.model 41 = 0x29), so
+// the QT2 family's id.model codes tell it apart from the YC1000.
 //
 // The vendor name lives in `Mn`, so don't repeat it here — Venus and HA
 // combine Mn + Md when displaying.
@@ -248,6 +224,9 @@ func inverterModelLabel(inv source.Inverter) string {
 	case "01":
 		return "DS3"
 	case "02":
+		if isQT2Model(inv.Model) {
+			return "QT2"
+		}
 		return "YC1000"
 	case "03":
 		return "QS1"

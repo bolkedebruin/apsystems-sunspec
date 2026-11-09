@@ -152,3 +152,47 @@ func TestFreqWattCurveBodyLen_MatchesModel134Spec(t *testing.T) {
 		t.Errorf("body len %d want %d", FreqWattCurveBodyLen, wantHeader+wantPerCurve*freqWattCurveNCrv)
 	}
 }
+
+// QT2 on ECU-C fw C1.2.27A: DH/DI hold 655.35 (0xFFFF centi-Hz, "not
+// supported"), only the over-frequency side exists. The curve must
+// publish just the two real points: CB at 100 %, CC at 0 %.
+func TestEmitFreqWattCurve_OverFrequencyOnly(t *testing.T) {
+	cases := map[string]source.ProtectionParams{
+		"sentinel": {
+			OFCurveUFLow: 655.35, OFCurveUFHigh: 655.35,
+			OFCurveOFLow: 50.2, OFDroopEnd: 52.0, OFDroopMode: 14,
+			Has: map[string]bool{"DH": true, "DI": true, "CB": true, "CC": true, "CV": true},
+		},
+		"missing": {
+			OFCurveOFLow: 50.2, OFDroopEnd: 52.0, OFDroopMode: 14,
+			Has: map[string]bool{"CB": true, "CC": true, "CV": true},
+		},
+	}
+	for name, p := range cases {
+		t.Run(name, func(t *testing.T) {
+			if FreqWattCurveHasUF(p) {
+				t.Error("FreqWattCurveHasUF=true want false")
+			}
+			bank := Bank{Regs: make([]uint16, 0, 80), Base: BaseRegister}
+			emitFreqWattCurve(&bank, p)
+			body := bank.Regs[2:]
+			if got := body[freqWattCurveBodyActPt]; got != 2 {
+				t.Errorf("ActPt=%d want 2", got)
+			}
+			if got := body[freqWattCurveBodyModEna]; got != 1 {
+				t.Errorf("ModEna=%d want 1", got)
+			}
+			want := map[uint16]uint16{
+				FreqWattCurveBodyHz1Off: 5020, FreqWattCurveBodyW1Off: 100,
+				FreqWattCurveBodyHz2Off: 5200, FreqWattCurveBodyW2Off: 0,
+				FreqWattCurveBodyHz3Off: 0, FreqWattCurveBodyW3Off: 0,
+				FreqWattCurveBodyHz4Off: 0, FreqWattCurveBodyW4Off: 0,
+			}
+			for off, w := range want {
+				if got := body[off]; got != w {
+					t.Errorf("body[%d]=%d want %d", off, got, w)
+				}
+			}
+		})
+	}
+}

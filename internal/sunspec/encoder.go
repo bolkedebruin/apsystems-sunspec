@@ -235,8 +235,13 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	)
 	bank.put16(scaleFactor(-1)) // ASF: 0.1 A
 
-	// PPVphAB/BC/CA — line-line voltages: not measured.
-	bank.put16(notImplU16, notImplU16, notImplU16)
+	// PPVphAB/BC/CA — line-line voltages, only measured by three-phase
+	// inverters (YC1000).
+	if ll, ok := aggregateLineToLineV(s); ok && phases == 3 {
+		bank.put16(uint16(ll[0]), uint16(ll[1]), uint16(ll[2]))
+	} else {
+		bank.put16(notImplU16, notImplU16, notImplU16)
+	}
 	// PhVphA/B/C — line-neutral voltages, scaled ×1; pad unused phases.
 	v := uint16(s.GridVoltageV + 0.5)
 	bank.put16(
@@ -470,6 +475,12 @@ func phaseValueU16(v uint16, idx, phasesUsed int) uint16 {
 func detectPhase(s source.Snapshot) PhaseMode {
 	var seen [4]bool
 	for _, inv := range s.Inverters {
+		// A three-phase inverter fixes the model even while offline, so
+		// the bank doesn't flip to 101 at night under a client that
+		// detects the device then.
+		if inv.ThreePhase() {
+			return PhaseThree
+		}
 		if !inv.Online {
 			continue
 		}
@@ -497,38 +508,56 @@ func detectPhase(s source.Snapshot) PhaseMode {
 
 // emitMultiMPPT appends a SunSpec Model 160 (Multi-MPPT) section to the bank.
 //
-// One module per **panel** (PV input channel) on every online microinverter.
-// A DS3 contributes 2 modules, a QS1 contributes 4 — the count derives from
-// the inverter type, never hardcoded.
+// One module per **panel** (PV input channel) of every known microinverter,
+// online or not. A DS3 contributes 2 modules, a QS1 contributes 4 — the
+// count derives from the inverter type, never hardcoded. Keeping offline
+// inverters' panels keeps the bank layout identical day and night and
+// through a missed radio cycle, so clients that cached register addresses
+// don't get read errors.
 //
-// APsystems doesn't expose per-panel DC voltage/current — only per-panel
-// power. We map:
+// APsystems exposes per-panel power and, in /tmp/parameters.conf, per-panel
+// DC voltage — but not DC current. We map:
 //
 //	DCW   ← per-panel power (W)
-//	DCV   ← per-inverter AC voltage stand-in, shared across the inverter's panels
-//	DCA   ← derived = panel_W / inverter_Vac, scale -1 (0.1 A)
+//	DCV   ← per-panel DC voltage; not implemented when the ECU has none
+//	DCA   ← derived = panel_W / panel_DCV, scale -1 (0.1 A); same gating
 //	Tmp   ← per-inverter cabinet temperature, shared
 //	DCSt  ← MPPT(4) when panel power > 0, Off(1) otherwise
 //	IDStr ← "<last8(UID)>/<A|B|C|D>"
+//
+// Panels of an offline inverter (or one whose telemetry row is short) carry
+// the "not implemented" values: clients show them as unknown.
 func emitMultiMPPT(bank *Bank, s source.Snapshot) {
-	type panelEntry struct {
-		inv     source.Inverter
-		channel int // 0..3
-		powerW  int
+	emitMPPT(bank, mpptPanels(s.Inverters))
+}
+
+// mpptPanel is one Model 160 module. ok is false when the inverter has no
+// current reading for its panels.
+type mpptPanel struct {
+	inv     source.Inverter
+	channel int // 0..3
+	powerW  int
+	ok      bool
+}
+
+func mpptPanels(invs []source.Inverter) []mpptPanel {
+	var panels []mpptPanel
+	for _, inv := range invs {
+		n := inv.PanelCount()
+		powers := inv.PanelPowers()
+		ok := inv.Online && len(powers) == n
+		for c := 0; c < n; c++ {
+			p := mpptPanel{inv: inv, channel: c, ok: ok}
+			if ok {
+				p.powerW = powers[c]
+			}
+			panels = append(panels, p)
+		}
 	}
-	var panels []panelEntry
-	for _, inv := range s.Inverters {
-		if !inv.Online {
-			continue
-		}
-		ch := inv.PanelPowers()
-		if len(ch) == 0 {
-			continue
-		}
-		for i, p := range ch {
-			panels = append(panels, panelEntry{inv: inv, channel: i, powerW: p})
-		}
-	}
+	return panels
+}
+
+func emitMPPT(bank *Bank, panels []mpptPanel) {
 	if len(panels) == 0 {
 		return
 	}
@@ -557,22 +586,19 @@ func emitMultiMPPT(bank *Bank, s source.Snapshot) {
 		bank.put16(uint16(i + 1))
 		bank.putString(panelLabel(e.inv, e.channel), 8)
 
-		// DCA derived
-		var dca uint16 = notImplU16
-		if e.inv.ACVoltageV > 0 && e.powerW >= 0 {
-			amps10 := float64(e.powerW) / float64(e.inv.ACVoltageV) * 10
-			if amps10 < 65535 {
-				dca = uint16(amps10 + 0.5)
-			}
+		if !e.ok {
+			bank.put16(notImplU16, notImplU16, notImplU16) // DCA, DCV, DCW
+			bank.putAcc32(0)                               // DCWH
+			bank.putAcc32(tmsNotImpl)                      // Tms
+			bank.put16(notImplS16)                         // Tmp
+			bank.put16(notImplU16)                         // DCSt
+			bank.putAcc32(uint64(notImplU32))              // DCEvt
+			continue
 		}
-		bank.put16(dca)
 
-		// DCV — share inverter's AC voltage stand-in
-		dcv := uint16(notImplU16)
-		if e.inv.ACVoltageV > 0 && e.inv.ACVoltageV < 65535 {
-			dcv = uint16(e.inv.ACVoltageV)
-		}
-		bank.put16(dcv)
+		// DCA / DCV — real per-channel DC voltage, current derived from it
+		dca, dcv := panelDCU16(e.inv, e.channel, e.powerW)
+		bank.put16(dca, dcv)
 
 		// DCW = panel power
 		dcw := uint16(notImplU16)
@@ -625,6 +651,14 @@ func derivePhaseCurrents(s source.Snapshot) (total uint16, perPhase [3]uint16) {
 		if !inv.Online {
 			continue
 		}
+		if inv.ThreePhase() {
+			// Balanced output: a third of the power on each phase.
+			for i := range phaseW {
+				phaseW[i] += inv.ACPowerW / 3
+			}
+			phaseW[0] += inv.ACPowerW % 3
+			continue
+		}
 		ph := inv.Phase - 1
 		if ph < 0 || ph > 2 {
 			ph = 0
@@ -640,4 +674,40 @@ func derivePhaseCurrents(s source.Snapshot) (total uint16, perPhase [3]uint16) {
 	}
 	total = uint16(float64(sum)/v*10 + 0.5)
 	return total, perPhase
+}
+
+// aggregateLineToLineV returns the line-to-line voltages of the first
+// online three-phase inverter. ok is false when none reports them.
+func aggregateLineToLineV(s source.Snapshot) (ll [3]int, ok bool) {
+	for _, inv := range s.Inverters {
+		if !inv.Online || !inv.ThreePhase() {
+			continue
+		}
+		if ll = inv.LineToLineV(); ll[0] > 0 {
+			return ll, true
+		}
+	}
+	return ll, false
+}
+
+// panelDC returns the DC voltage and current of channel i drawing powerW.
+// The voltage is the per-channel DC reading from /tmp/parameters.conf and
+// the current is derived as W/V; ok is false when the ECU has no DC
+// voltage for the channel, in which case both fields are "not implemented".
+func panelDC(inv source.Inverter, i, powerW int) (dcv, dca float64, ok bool) {
+	v := inv.PanelDCV(i)
+	if v <= 0 || powerW < 0 {
+		return 0, 0, false
+	}
+	return float64(v), float64(powerW) / float64(v), true
+}
+
+// panelDCU16 is panelDC encoded for Model 160: DCA in 0.1 A (DCA_SF -1),
+// DCV in whole volts, uint16 not-impl when unknown.
+func panelDCU16(inv source.Inverter, i, powerW int) (dca, dcv uint16) {
+	v, a, ok := panelDC(inv, i, powerW)
+	if !ok || v >= 65535 || a*10 >= 65535 {
+		return notImplU16, notImplU16
+	}
+	return uint16(a*10 + 0.5), uint16(v)
 }

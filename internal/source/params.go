@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -132,7 +133,11 @@ func parseInverterLine(f []string) (Inverter, error) {
 //
 //	type 01 (YC600 / DS3, 2-channel):  [tmp, P0, V_ac, P1, V_ac]          5 cols
 //	type 03 (QS1, 4-channel):          [tmp, P0, V_ac, P1, P2, P3]        6 cols
+//	type 02 (YC1000, 3-phase):         [tmp, P0, V_AB, P1, V_BC, P2, V_CA, P3]  8 cols
 //	type 04 (DS3-H / DS3D-L):          not yet sampled — falls through to type-01 layout
+//
+// Type 02 voltages are line-to-line; vAC is reported line-neutral
+// (mean / √3) so it matches the 230 V-based protection thresholds.
 func guessACFromTail(typeCode string, tail []int) (vAC int, wAC int) {
 	switch typeCode {
 	case "01", "04":
@@ -144,6 +149,12 @@ func guessACFromTail(typeCode string, tail []int) (vAC int, wAC int) {
 		if len(tail) >= 6 {
 			wAC = tail[1] + tail[3] + tail[4] + tail[5]
 			vAC = tail[2]
+		}
+	case "02":
+		if len(tail) >= 8 {
+			wAC = tail[1] + tail[3] + tail[5] + tail[7]
+			vLL := float64(tail[2]+tail[4]+tail[6]) / 3
+			vAC = int(vLL/math.Sqrt(3) + 0.5)
 		}
 	}
 	return vAC, wAC
