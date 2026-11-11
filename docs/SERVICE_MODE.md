@@ -53,6 +53,10 @@ heavy overcast): it keeps its own daily total from the records it gets
 and does not catch up afterwards — on 2026-11-07 EMA kept 2.2 kWh while
 the inverter counted 2.93 kWh.
 
+Home Assistant example (native Modbus integration: mode selector,
+threshold, data-age and EMA sensors, stalled-upload alert):
+[`examples/home-assistant/ecu-control.yaml`](../examples/home-assistant/ecu-control.yaml).
+
 ## What reaches EMA: `/home/record.db`
 
 `/home/applications/client` uploads to EMA ("Connect to EMA data
