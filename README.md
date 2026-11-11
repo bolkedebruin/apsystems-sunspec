@@ -208,6 +208,8 @@ Host: <ECU-IP>   Port: 1502   Slave ID: 4   →  Microinverter C
 
 For the vendor model (model 64202 — daily/month/year energy aggregates, per-inverter RSSI, etc.) to be decoded natively, copy [`sunspec-models/model_64202.json`](sunspec-models/model_64202.json) into pysunspec2's `models/json/` directory inside the HA container. See [`sunspec-models/README.md`](sunspec-models/README.md) for the path.
 
+To control the ECU's Service Mode (fast polling) and watch the EMA uploads (vendor Model 64203, see [`docs/SERVICE_MODE.md`](docs/SERVICE_MODE.md)), use HA's native Modbus integration, which can write registers: [`examples/home-assistant/ecu-control.yaml`](examples/home-assistant/ecu-control.yaml) has a mode selector (normal / permanent / automatic), the automatic-mode threshold, the data-age and EMA sensors, and an alert when production data stops reaching EMA.
+
 ## Adding to Victron Venus
 
 ```

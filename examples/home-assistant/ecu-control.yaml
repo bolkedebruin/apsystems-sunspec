@@ -1,0 +1,274 @@
+# Home Assistant — ECU Service Mode control and EMA monitoring (ecu-sunspec Model 64203)
+#
+# Unit ID 1, Model 64203 at 40611 (fixed address), verified on the ECU:
+#   40613 FastPoll          RW  0 normal (5 min), 1 Service Mode (~20 s, permanent), 2 automatic
+#   40614 FastPollElapsedS  R   seconds since Service Mode was entered (0 = normal mode right now)
+#   40615 LastPollTms       R   uint32 Unix time of the last radio cycle
+#   40617 DataAgeS          R   seconds since that cycle
+#   40618 EmaConnected      R   1 connected to EMA, 0 not
+#   40619 LastProdRecTms    R   uint32 Unix time of the newest production record queued for EMA
+#   40621 ProdRecPending    R   production records not yet sent
+#   40622 ProdRecLastHour   R   production records in the last hour (12 in normal mode, 0 in Service Mode)
+#   40623 LastEmaCtrlTms    R   uint32 Unix time of the last EMA control-server session (every 15 min)
+#   40625 ProdRecAgeS       R   seconds since the newest production record
+#   40626 FastPollThresholdW RW automatic-mode threshold, W (default 50)
+#
+# Writes need Home Assistant on the ECU's LAN (192.168.3.x), or its IP in
+# /home/sunspec.json writes.allow_list.
+#
+# Modbus option naming: recent HA versions use `device_address` in the
+# YAML and in modbus.write_register; older ones use `slave`. Use the one
+# your version accepts (the config check tells you).
+
+modbus:
+  - name: ecu_sunspec
+    type: tcp
+    host: 192.168.3.201
+    port: 1502
+
+    binary_sensors:
+      - name: "ECU EMA connected"
+        unique_id: ecu_ema_connected
+        device_address: 1
+        address: 40618
+        input_type: holding
+        device_class: connectivity
+        scan_interval: 60
+
+    sensors:
+      - name: "ECU Service Mode setting"
+        unique_id: ecu_fast_poll_mode
+        device_address: 1
+        address: 40613
+        input_type: holding
+        data_type: uint16
+        scan_interval: 15
+
+      - name: "ECU Service Mode elapsed"
+        unique_id: ecu_fast_poll_elapsed
+        device_address: 1
+        address: 40614
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: s
+        device_class: duration
+        scan_interval: 15
+
+      - name: "ECU Service Mode threshold"
+        unique_id: ecu_fast_poll_threshold
+        device_address: 1
+        address: 40626
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: W
+        device_class: power
+        scan_interval: 60
+
+      - name: "ECU last poll (unix)"
+        unique_id: ecu_last_poll_unix
+        device_address: 1
+        address: 40615
+        input_type: holding
+        data_type: uint32
+        scan_interval: 15
+
+      - name: "ECU data age"
+        unique_id: ecu_data_age
+        device_address: 1
+        address: 40617
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: s
+        device_class: duration
+        state_class: measurement
+        scan_interval: 15
+
+      - name: "ECU last production record (unix)"
+        unique_id: ecu_last_prod_record_unix
+        device_address: 1
+        address: 40619
+        input_type: holding
+        data_type: uint32
+        scan_interval: 60
+
+      - name: "ECU production records pending"
+        unique_id: ecu_prod_records_pending
+        device_address: 1
+        address: 40621
+        input_type: holding
+        data_type: uint16
+        state_class: measurement
+        scan_interval: 60
+
+      - name: "ECU production records last hour"
+        unique_id: ecu_prod_records_last_hour
+        device_address: 1
+        address: 40622
+        input_type: holding
+        data_type: uint16
+        state_class: measurement
+        scan_interval: 60
+
+      - name: "ECU EMA control contact (unix)"
+        unique_id: ecu_ema_control_contact_unix
+        device_address: 1
+        address: 40623
+        input_type: holding
+        data_type: uint32
+        scan_interval: 60
+
+      - name: "ECU production record age"
+        unique_id: ecu_prod_record_age
+        device_address: 1
+        address: 40625
+        input_type: holding
+        data_type: uint16
+        unit_of_measurement: s
+        device_class: duration
+        state_class: measurement
+        scan_interval: 60
+
+# Controls: the Modbus integration has no select/number entities, so the
+# mode and the threshold are input helpers written with modbus.write_register.
+input_select:
+  ecu_service_mode:
+    name: "ECU Service Mode"
+    icon: mdi:timer-sync-outline
+    options:
+      - "Normal (5 min)"
+      - "Permanent (~20 s)"
+      - "Automatic"
+
+input_number:
+  ecu_service_mode_threshold:
+    name: "ECU Service Mode threshold"
+    icon: mdi:flash
+    min: 10
+    max: 1000
+    step: 5
+    unit_of_measurement: W
+    mode: box
+
+template:
+  - sensor:
+      - name: "ECU Service Mode state"
+        unique_id: ecu_service_mode_state
+        icon: mdi:timer-sync-outline
+        state: >
+          {% set e = states('sensor.ecu_service_mode_elapsed') | int(-1) %}
+          {{ 'unknown' if e < 0 else ('fast (~20 s)' if e > 0 else 'normal (5 min)') }}
+
+      - name: "ECU last poll"
+        unique_id: ecu_last_poll
+        device_class: timestamp
+        state: >
+          {% set t = states('sensor.ecu_last_poll_unix') | int(0) %}
+          {{ (t | as_datetime) if t > 0 and t != 4294967295 else none }}
+
+      - name: "ECU last production record"
+        unique_id: ecu_last_prod_record
+        device_class: timestamp
+        state: >
+          {% set t = states('sensor.ecu_last_production_record_unix') | int(0) %}
+          {{ (t | as_datetime) if t > 0 and t != 4294967295 else none }}
+
+      - name: "ECU EMA control contact"
+        unique_id: ecu_ema_control_contact
+        device_class: timestamp
+        state: >
+          {% set t = states('sensor.ecu_ema_control_contact_unix') | int(0) %}
+          {{ (t | as_datetime) if t > 0 and t != 4294967295 else none }}
+
+automation:
+  # Helper → ECU. Only writes when the helper differs from what the ECU reports,
+  # so the sync automations below don't cause write loops.
+  - alias: "ECU — write Service Mode"
+    id: ecu_write_service_mode
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_select.ecu_service_mode
+    variables:
+      value: >
+        {{ {'Normal (5 min)': 0, 'Permanent (~20 s)': 1, 'Automatic': 2}[trigger.to_state.state] }}
+    conditions:
+      - condition: template
+        value_template: "{{ value != states('sensor.ecu_service_mode_setting') | int(-1) }}"
+    actions:
+      - action: modbus.write_register
+        data:
+          hub: ecu_sunspec
+          device_address: 1
+          address: 40613
+          value: "{{ value }}"
+
+  - alias: "ECU — write Service Mode threshold"
+    id: ecu_write_service_mode_threshold
+    mode: queued
+    triggers:
+      - trigger: state
+        entity_id: input_number.ecu_service_mode_threshold
+    variables:
+      value: "{{ trigger.to_state.state | float(0) | int }}"
+    conditions:
+      - condition: template
+        value_template: "{{ value != states('sensor.ecu_service_mode_threshold') | int(-1) }}"
+    actions:
+      - action: modbus.write_register
+        data:
+          hub: ecu_sunspec
+          device_address: 1
+          address: 40626
+          value: "{{ value }}"
+
+  # ECU → helper: keep the helpers showing the ECU's real setting (startup,
+  # changes made elsewhere).
+  - alias: "ECU — sync Service Mode helpers"
+    id: ecu_sync_service_mode_helpers
+    mode: queued
+    triggers:
+      - trigger: homeassistant
+        event: start
+      - trigger: state
+        entity_id:
+          - sensor.ecu_service_mode_setting
+          - sensor.ecu_service_mode_threshold
+    actions:
+      - if: "{{ states('sensor.ecu_service_mode_setting') | int(-1) in [0, 1, 2] }}"
+        then:
+          - action: input_select.select_option
+            target:
+              entity_id: input_select.ecu_service_mode
+            data:
+              option: >
+                {{ ['Normal (5 min)', 'Permanent (~20 s)', 'Automatic'][states('sensor.ecu_service_mode_setting') | int] }}
+      - if: "{{ states('sensor.ecu_service_mode_threshold') | int(0) > 0 }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.ecu_service_mode_threshold
+            data:
+              value: "{{ states('sensor.ecu_service_mode_threshold') | int }}"
+
+  # Alert: no production record queued for EMA for more than 15 minutes while
+  # the sun is up and the ECU is in normal mode (in Service Mode that's expected).
+  - alias: "ECU — EMA production data stalled"
+    id: ecu_ema_production_stalled
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.ecu_production_record_age
+        above: 900
+    conditions:
+      - condition: state
+        entity_id: sun.sun
+        state: above_horizon
+      - condition: numeric_state
+        entity_id: sensor.ecu_service_mode_elapsed
+        below: 1
+    actions:
+      - action: persistent_notification.create
+        data:
+          title: "ECU / EMA"
+          message: >
+            No production record queued for EMA for
+            {{ (states('sensor.ecu_production_record_age') | int(0) / 60) | round(0) }} min.

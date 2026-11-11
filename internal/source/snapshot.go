@@ -31,6 +31,25 @@ type Snapshot struct {
 	Model           string
 	PollingInterval int // seconds; 0 = unknown / default
 
+	// LastPollTime is when main.exe last rewrote parameters_app.conf (file
+	// mtime; the header timestamp, truncated to the minute, is the
+	// fallback). Zero if unknown.
+	LastPollTime time.Time
+	// FastPolling is the ECU Service Mode flag (fast_polling.conf == 1);
+	// FastPollingSince is when it was set (file mtime).
+	FastPolling      bool
+	FastPollingSince time.Time
+	// FastPollMode / FastPollThresholdW are the adapter's own Service Mode
+	// choice (0 off, 1 on, 2 auto) and auto-mode threshold, filled in by
+	// the server when FastPollConfigured.
+	FastPollConfigured bool
+	FastPollMode       int
+	FastPollThresholdW int
+
+	// EMA is what the ECU queues and sends to APsystems' cloud (see ema.go),
+	// refreshed at most once per Builder.EMAInterval.
+	EMA EMAStatus
+
 	SystemPowerW        int32   // each_system_power latest sample
 	SystemMaxPowerW     int32   // /tmp/powerALL.conf — APsystems' authoritative fleet capacity (sum of per-inverter nameplate watts, computed by main.exe at startup; 0 if not readable)
 	LifetimeEnergyWh    uint64  // lifetime_energy * 1000

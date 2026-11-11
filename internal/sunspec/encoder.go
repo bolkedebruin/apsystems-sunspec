@@ -334,6 +334,11 @@ func Encode(s source.Snapshot, opt Options) Bank {
 	}
 	emitFreqWattCurve(&bank, aggregateProtection(s))
 
+	// --- Vendor model 64203 — ECU Service Mode + data freshness ---
+	// Emitted ahead of Model 160 (present only while panels report) so its
+	// address stays fixed for clients that poll it by register number.
+	emitECUControl(&bank, s)
+
 	// --- Multi-MPPT Model 160 (one module per panel of every online inverter) ---
 	if !opt.DisableMPPT {
 		emitMultiMPPT(&bank, s)

@@ -40,6 +40,16 @@ type Config struct {
 	// Writer is the SQLite write handle. Required when writes are enabled;
 	// optional otherwise. The server takes no ownership — caller must Close().
 	Writer *source.Writer
+
+	// FastPollingFile is the ECU Service Mode flag file written by Model
+	// 64203 FastPoll writes (<yuneng dir>/fast_polling.conf). Empty
+	// rejects those writes.
+	FastPollingFile string
+	// FastPollStateFile saves the FastPoll choice across restarts (on
+	// flash, written only when the choice changes); Service Mode is kept
+	// on while it says "1". Empty: the choice lasts until the adapter
+	// restarts.
+	FastPollStateFile string
 }
 
 // Server owns the Modbus listener and the snapshot refresh goroutine.
@@ -73,6 +83,10 @@ type Server struct {
 	// no Writer is configured.
 	reverter *Reverter
 
+	// fastPoll holds the Model 64203 FastPoll choice and keeps the ECU in
+	// Service Mode while it is on. nil when no FastPollingFile is set.
+	fastPoll *FastPollKeeper
+
 	logger *log.Logger
 }
 
@@ -97,13 +111,17 @@ func New(p Provider, cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = log.Default()
 	}
-	return &Server{
+	s := &Server{
 		cfg:      cfg,
 		provider: p,
 		logger:   cfg.Logger,
 		tracker:  NewWriteTracker(),
 		reverter: NewReverter(cfg.Writer, cfg.Logger),
 	}
+	if cfg.FastPollingFile != "" {
+		s.fastPoll = NewFastPollKeeper(cfg.FastPollingFile, cfg.FastPollStateFile, cfg.Logger)
+	}
+	return s
 }
 
 // Start launches the refresh loop, primes the bank with one synchronous
@@ -164,6 +182,12 @@ func (s *Server) refresh(ctx context.Context) error {
 	snap, err := s.provider.Build(ctx)
 	if err != nil {
 		return err
+	}
+	if s.fastPoll != nil {
+		s.fastPoll.Tick(time.Now(), int(snap.SystemPowerW))
+		snap.FastPollConfigured = true
+		snap.FastPollMode = s.fastPoll.Mode()
+		snap.FastPollThresholdW = s.fastPoll.ThresholdW()
 	}
 	// Reconcile pending write requests against the new snapshot before
 	// publishing — so the next bank build emits the correct AdptCtlRslt.
@@ -325,6 +349,15 @@ func (h *handler) handleWrite(req *modbus.HoldingRegistersRequest) ([]uint16, er
 				snap:    *snapPtr,
 				writer:  o.cfg.Writer,
 				tracker: o.tracker,
+			}).Apply,
+		},
+		{
+			id:      sunspec.ECUControlModelID,
+			bodyLen: sunspec.ECUControlBodyLen,
+			apply: (&ECUControlWriter{
+				uid:      req.UnitId,
+				keeper:   o.fastPoll,
+				disabled: !o.cfg.Writes.Writes.FastPollingAllowed(),
 			}).Apply,
 		},
 	}
