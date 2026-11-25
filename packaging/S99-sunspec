@@ -2,9 +2,11 @@
 #
 # S99-sunspec — start/stop the apsystems-sunspec Modbus TCP adapter.
 #
-# Stock APsystems firmware uses BusyBox-style init.d scripts; everything
-# under /etc/init.d/S* is run on boot in lexical order. S99 puts us last,
-# after main.exe and friends have settled.
+# Some APsystems firmwares run every /etc/init.d/S* on boot in lexical
+# order; sysvinit-based ones (ECU-C) only run the links in /etc/rcS.d and
+# /etc/rc5.d, so packaging/assist also links this script as
+# /etc/rc5.d/S99sunspec. Either way it starts last, after main.exe and
+# friends have settled.
 
 BIN=/home/applications/ecu-sunspec
 PIDOF="pidof ecu-sunspec"

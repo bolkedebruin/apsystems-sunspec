@@ -40,6 +40,19 @@ put_exec() {
     echo "+ $dst"
 }
 
+# link_boot SCRIPT LINK — make /etc/init.d/SCRIPT start on boot.
+# The ECU-C (and other sysvinit-based firmwares) only runs the S* links in
+# /etc/rcS.d and /etc/rc<runlevel>.d, not scripts dropped straight into
+# /etc/init.d; without the link the service dies with the first reboot
+# or power cut. Runlevel 5 runs after rcS, i.e. after APsystems'
+# S50ecu_init has started main.exe. Firmwares without /etc/rc5.d keep the
+# plain /etc/init.d/S* convention.
+link_boot() {
+    [ -d /etc/rc5.d ] || return 0
+    ln -sf "../init.d/$1" "/etc/rc5.d/$2"
+    echo "+ /etc/rc5.d/$2 -> ../init.d/$1"
+}
+
 # 1. The SunSpec adapter binary itself.
 put_exec "$SRC/applications/ecu-sunspec" /home/applications/ecu-sunspec || true
 
@@ -65,8 +78,9 @@ elif [ -f /home/sunspec-nameplate.json ]; then
     echo "  /home/sunspec-nameplate.json present — keeping existing table"
 fi
 
-# 3. Boot init script (BusyBox /etc/init.d style).
+# 3. Boot init script, plus its runlevel link where the firmware uses them.
 put_exec "$SRC/etc-init-d/S99-sunspec" /etc/init.d/S99-sunspec || true
+link_boot S99-sunspec S99sunspec
 
 # 3. Optional yuneng config overlays.
 if [ -d "$SRC/etc-yuneng" ]; then
@@ -112,6 +126,7 @@ if [ -d "$SRC/dropbear" ]; then
 
     if [ -f "$SRC/etc-init-d/S98-dropbear" ]; then
         put_exec "$SRC/etc-init-d/S98-dropbear" /etc/init.d/S98-dropbear || true
+        link_boot S98-dropbear S98dropbear
         /etc/init.d/S98-dropbear start || true
     fi
 fi

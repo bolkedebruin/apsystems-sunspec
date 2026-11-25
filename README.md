@@ -17,7 +17,7 @@ The adapter requires a Linux userspace on the ECU (BusyBox + writable `/home/app
 | ECU-3 / ECU-3Z | various | Linux | yes — untested | unknown |
 
 Notes:
-- "Tested" means I run this build daily on the listed firmware. Other Linux-based ECUs share the same userspace lineage (Yuneng platform, sqlite-backed `/home/database.db`, BusyBox `/etc/init.d/S99-*` script convention) so the adapter should work without code changes — open an issue if you find otherwise.
+- "Tested" means I run this build daily on the listed firmware. Other Linux-based ECUs share the same userspace lineage (Yuneng platform, sqlite-backed `/home/database.db`, BusyBox `/etc/init.d` scripts — run directly on some firmwares, through `/etc/rc5.d` links on sysvinit-based ones like the ECU-C, which the installer handles) so the adapter should work without code changes — open an issue if you find otherwise.
 - The Cortex-M3 / RT-Thread ECUs (2160 / 2163) ship a single firmware blob that boots from MCU flash at `0x08000000` — there's nowhere to install a Go binary. APsystems' own port-502 server on those models implements only the minimal SunSpec PICS (4 models); the richer 700-series DER models, Multi-MPPT, nameplate, and float variants this adapter exposes simply aren't reachable on those ECUs.
 - A sidecar deployment that proxies a 2160's port 502 is possible but limited — a sidecar machine can only republish what :502 already serves; it can't read the per-inverter tables that aren't exposed over Modbus.
 
@@ -103,7 +103,7 @@ curl -X POST -H "Expect:" -F file=@dist/apsystems-sunspec-<version>.tar.bz2 \
 The PHP handler extracts the tarball into `/home/update_from_app/` and runs `update_localweb/assist`. The script:
 
 - copies `ecu-sunspec` to `/home/applications/`
-- installs `/etc/init.d/S99-sunspec` (auto-start on boot)
+- installs `/etc/init.d/S99-sunspec` and, where the firmware boots through runlevel links (sysvinit, e.g. ECU-C), links it as `/etc/rc5.d/S99sunspec` so the adapter comes back after a reboot or power cut
 - restarts the adapter
 
 A log of the install lands in `/home/sunspec-install.log` on the ECU.
@@ -137,7 +137,7 @@ Why these specific binaries: the ECU's userland is glibc 2.15 / armhf, the same 
 
 If you'd rather use your own pre-built dropbear, skip step 1 and pass `DROPBEAR_DIR=` pointing at any directory with `dropbear` + `dropbearkey` (and optional `authorized_keys`).
 
-The resulting `apsystems-sunspec-<version>-dropbear.tar.bz2` adds an `S98-dropbear` init script so the SSH daemon comes up automatically on each boot.
+The resulting `apsystems-sunspec-<version>-dropbear.tar.bz2` adds an `S98-dropbear` init script (linked as `/etc/rc5.d/S98dropbear` where the firmware uses runlevel links) so the SSH daemon comes up automatically on each boot.
 
 #### Connecting to the bundled dropbear
 
